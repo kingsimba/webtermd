@@ -38,6 +38,13 @@ type uploadEntry struct {
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
+// downloadEntry is a one-time download token.
+type downloadEntry struct {
+	Path      string
+	Filename  string
+	ExpiresAt time.Time
+}
+
 // Server serves the API and static files.
 type Server struct {
 	auth       *auth.Authenticator
@@ -46,9 +53,11 @@ type Server struct {
 	activeSess map[*websocket.Conn]*ptysession.Session
 	mu         sync.Mutex
 
-	uploadDir string
-	uploads   map[string]*uploadEntry
-	uploadMu  sync.Mutex
+	uploadDir      string
+	uploads        map[string]*uploadEntry
+	uploadMu       sync.Mutex
+	downloadTokens map[string]*downloadEntry
+	downloadMu     sync.Mutex
 }
 
 // New creates a new Server.
@@ -57,11 +66,12 @@ func New(a *auth.Authenticator, staticFS fs.FS, noAuth bool) *Server {
 	os.MkdirAll(uploadDir, 0700)
 
 	s := &Server{
-		auth:       a,
-		noAuth:     noAuth,
-		activeSess: make(map[*websocket.Conn]*ptysession.Session),
-		uploadDir:  uploadDir,
-		uploads:    make(map[string]*uploadEntry),
+		auth:           a,
+		noAuth:         noAuth,
+		activeSess:     make(map[*websocket.Conn]*ptysession.Session),
+		uploadDir:      uploadDir,
+		uploads:        make(map[string]*uploadEntry),
+		downloadTokens: make(map[string]*downloadEntry),
 	}
 
 	// Recover partial uploads from disk metadata.
@@ -70,9 +80,11 @@ func New(a *auth.Authenticator, staticFS fs.FS, noAuth bool) *Server {
 	s.mux.HandleFunc("/api/challenge", s.handleChallenge)
 	s.mux.HandleFunc("/ws", s.handleWS)
 	s.mux.HandleFunc("/api/upload/", s.handleUpload)
+	s.mux.HandleFunc("/api/download/", s.handleDownload)
 	s.mux.Handle("/", http.FileServerFS(staticFS))
 
 	go s.uploadGC()
+	go s.downloadGC()
 
 	return s
 }
@@ -228,6 +240,83 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	// Path: /api/download/<token>
+	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/download/"), "/")
+	if len(parts) < 1 || parts[0] == "" {
+		http.Error(w, "missing token", http.StatusBadRequest)
+		return
+	}
+	token := parts[0]
+
+	s.downloadMu.Lock()
+	e, ok := s.downloadTokens[token]
+	s.downloadMu.Unlock()
+
+	if !ok || time.Now().After(e.ExpiresAt) {
+		http.Error(w, "invalid or expired download link", http.StatusNotFound)
+		return
+	}
+
+	// Heartbeat: extend expiry while ServeContent is streaming, so long
+	// transfers and paused downloads don't lose their token mid-flight.
+	// After ServeContent returns (done or disconnected), the token still
+	// has 10 minutes for Range retries.
+	stop := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(1 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				s.downloadMu.Lock()
+				if e, ok := s.downloadTokens[token]; ok {
+					e.ExpiresAt = time.Now().Add(10 * time.Minute)
+				}
+				s.downloadMu.Unlock()
+			}
+		}
+	}()
+	defer close(stop)
+
+	f, err := os.Open(e.Path)
+	if err != nil {
+		http.Error(w, "file not found", http.StatusNotFound)
+		return
+	}
+	defer f.Close()
+
+	info, err := f.Stat()
+	if err != nil {
+		http.Error(w, "file not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, e.Filename))
+	w.Header().Set("Content-Type", "application/octet-stream")
+	http.ServeContent(w, r, e.Filename, info.ModTime(), f)
+}
+
+func (s *Server) downloadGC() {
+	for {
+		time.Sleep(1 * time.Minute)
+		s.downloadMu.Lock()
+		now := time.Now()
+		for token, e := range s.downloadTokens {
+			if now.After(e.ExpiresAt) {
+				delete(s.downloadTokens, token)
+			}
+		}
+		s.downloadMu.Unlock()
 	}
 }
 
@@ -476,6 +565,76 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 					delete(s.uploads, cancel.ID)
 				}
 				s.uploadMu.Unlock()
+
+			case "list-files":
+				cwd, _ := sess.GetCWD()
+				if cwd == "" {
+					cwd = "/tmp"
+				}
+				entries, err := os.ReadDir(cwd)
+				if err != nil {
+					s.wsSendJSON(conn, map[string]string{"type": "file-list-error", "message": err.Error()})
+					continue
+				}
+				type fileInfo struct {
+					Name  string `json:"name"`
+					Size  int64  `json:"size"`
+					IsDir bool   `json:"isDir"`
+				}
+				files := make([]fileInfo, 0, len(entries))
+				for _, e := range entries {
+					info, err := e.Info()
+					if err != nil {
+						continue
+					}
+					files = append(files, fileInfo{
+						Name:  e.Name(),
+						Size:  info.Size(),
+						IsDir: e.IsDir(),
+					})
+				}
+				s.wsSendJSON(conn, map[string]interface{}{
+					"type":  "file-list",
+					"dir":   cwd,
+					"files": files,
+				})
+
+			case "download":
+				var dl struct {
+					Path string `json:"path"`
+				}
+				if json.Unmarshal(msg, &dl) != nil || dl.Path == "" {
+					s.wsSendJSON(conn, map[string]string{"type": "download-error", "message": "missing path"})
+					continue
+				}
+				cwd, _ := sess.GetCWD()
+				if cwd == "" {
+					cwd = "/tmp"
+				}
+				// Resolve and validate path stays within CWD.
+				resolved := filepath.Clean(filepath.Join(cwd, dl.Path))
+				if !strings.HasPrefix(resolved, cwd+string(os.PathSeparator)) && resolved != cwd {
+					s.wsSendJSON(conn, map[string]string{"type": "download-error", "message": "path escapes working directory"})
+					continue
+				}
+				info, err := os.Stat(resolved)
+				if err != nil || info.IsDir() {
+					s.wsSendJSON(conn, map[string]string{"type": "download-error", "message": "file not found or is a directory"})
+					continue
+				}
+				token := generateID()
+				s.downloadMu.Lock()
+				s.downloadTokens[token] = &downloadEntry{
+					Path:      resolved,
+					Filename:  filepath.Base(resolved),
+					ExpiresAt: time.Now().Add(10 * time.Minute),
+				}
+				s.downloadMu.Unlock()
+				s.wsSendJSON(conn, map[string]interface{}{
+					"type":     "download-ready",
+					"url":      "/api/download/" + token,
+					"filename": filepath.Base(resolved),
+				})
 			}
 			continue
 		}

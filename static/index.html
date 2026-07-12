@@ -48,7 +48,13 @@
     padding: 10px 12px; font-weight: bold; color: #e0e0e0;
     border-bottom: 1px solid #3c3c3c; display: flex;
     justify-content: space-between; align-items: center; flex-shrink: 0;
+    gap: 8px;
   }
+  #btn-list-files {
+    background: #3c3c3c; border: 1px solid #555; color: #ccc; cursor: pointer;
+    font-size: 11px; padding: 3px 8px; border-radius: 3px; flex-shrink: 0;
+  }
+  #btn-list-files:hover { background: #555; }
 
   #sidebar-cwd {
     padding: 10px 12px; word-break: break-all; color: #8bc34a;
@@ -57,7 +63,31 @@
   }
   #sidebar-cwd .label { color: #888; font-size: 10px; text-transform: uppercase; }
 
-  #sidebar-uploads { padding: 10px 12px; flex: 1; overflow-y: auto; }
+  #sidebar-files { padding: 10px 12px; flex: 1; overflow-y: auto; }
+  #sidebar-files .empty-hint {
+    color: #555; text-align: center; padding: 20px 0; font-size: 12px;
+    font-style: italic;
+  }
+  #sidebar-files .file-item {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 4px 0; border-bottom: 1px solid #333; font-size: 12px; gap: 6px;
+  }
+  #sidebar-files .file-item .name {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1;
+  }
+  #sidebar-files .file-item .name.is-dir { color: #64b5f6; }
+  #sidebar-files .file-item .size {
+    color: #888; font-size: 10px; flex-shrink: 0;
+  }
+  #sidebar-files .file-item .btn-dl {
+    background: #3c3c3c; border: 1px solid #555; color: #8bc34a; cursor: pointer;
+    font-size: 10px; padding: 2px 8px; border-radius: 3px; flex-shrink: 0;
+  }
+  #sidebar-files .file-item .btn-dl:hover { background: #555; }
+
+  #sidebar-uploads {
+    padding: 10px 12px; overflow-y: auto; max-height: 50%; border-top: 1px solid #3c3c3c;
+  }
   #sidebar-uploads .empty-hint {
     color: #555; text-align: center; padding: 20px 0; font-size: 12px;
     font-style: italic;
@@ -126,10 +156,14 @@
   <div id="sidebar" class="collapsed">
     <div id="sidebar-header">
       <span>Files</span>
+      <button id="btn-list-files">List Files</button>
     </div>
     <div id="sidebar-cwd">
       <div class="label">CWD</div>
       <div id="cwd-path">-</div>
+    </div>
+    <div id="sidebar-files">
+      <div class="empty-hint">Click "List Files" to browse</div>
     </div>
     <div id="sidebar-uploads">
       <div class="empty-hint">No uploads</div>
@@ -196,6 +230,8 @@
 
   // --- state ---
   var ws = null;
+  var termDataDisposable = null;
+  var termResizeDisposable = null;
   var uploadToken = '';
   var uploadPrefix = '';
   var uploads = {};        // id -> { el, filename, received, total, file, xhr, offset, paused }
@@ -205,6 +241,68 @@
     cwdPath.textContent = path;
     cwdInline.textContent = path;
     cwdInline.title = path;
+  }
+
+  // --- file list ---
+  var filesList = document.getElementById('sidebar-files');
+  var filesEmptyHint = filesList.querySelector('.empty-hint');
+
+  document.getElementById('btn-list-files').addEventListener('click', function() {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      showError('Not connected');
+      return;
+    }
+    filesList.innerHTML = '<div class="empty-hint">Loading...</div>';
+    ws.send(JSON.stringify({ type: 'list-files' }));
+  });
+
+  function renderFileList(dir, files) {
+    filesList.innerHTML = '';
+    if (files.length === 0) {
+      filesList.innerHTML = '<div class="empty-hint">Directory is empty</div>';
+      return;
+    }
+    files.forEach(function(f) {
+      var item = document.createElement('div');
+      item.className = 'file-item';
+
+      var name = document.createElement('span');
+      name.className = 'name' + (f.isDir ? ' is-dir' : '');
+      name.textContent = f.name + (f.isDir ? '/' : '');
+      name.title = f.name;
+      item.appendChild(name);
+
+      if (!f.isDir) {
+        var size = document.createElement('span');
+        size.className = 'size';
+        size.textContent = formatSize(f.size);
+        item.appendChild(size);
+
+        var dlBtn = document.createElement('button');
+        dlBtn.className = 'btn-dl';
+        dlBtn.textContent = '↓';
+        dlBtn.title = 'Download ' + f.name;
+        dlBtn.addEventListener('click', function() {
+          if (!ws || ws.readyState !== WebSocket.OPEN) {
+            showError('Not connected');
+            return;
+          }
+          ws.send(JSON.stringify({ type: 'download', path: f.name }));
+        });
+        item.appendChild(dlBtn);
+      }
+
+      filesList.appendChild(item);
+    });
+  }
+
+  function triggerDownload(url) {
+    var a = document.createElement('a');
+    a.href = url;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function() { document.body.removeChild(a); }, 1000);
   }
 
   // --- upload progress UI ---
@@ -451,13 +549,15 @@
 
         ws.onopen = function() {
           term.focus();
-          term.onData(function(data) {
+          if (termDataDisposable) termDataDisposable.dispose();
+          termDataDisposable = term.onData(function(data) {
             if (ws && ws.readyState === WebSocket.OPEN) {
               ws.send(data);
             }
           });
 
-          term.onResize(function(_a) {
+          if (termResizeDisposable) termResizeDisposable.dispose();
+          termResizeDisposable = term.onResize(function(_a) {
             if (ws && ws.readyState === WebSocket.OPEN) {
               ws.send(JSON.stringify({
                 type: 'resize',
@@ -525,6 +625,22 @@
           } else {
             try { localStorage.removeItem('ax-upload-' + msg.id); } catch(e) {}
           }
+          break;
+
+        case 'file-list':
+          renderFileList(msg.dir, msg.files || []);
+          break;
+
+        case 'file-list-error':
+          filesList.innerHTML = '<div class="empty-hint" style="color:#d32f2f">' + msg.message + '</div>';
+          break;
+
+        case 'download-ready':
+          triggerDownload(msg.url);
+          break;
+
+        case 'download-error':
+          showError('Download: ' + msg.message);
           break;
         }
       } catch(e) {}

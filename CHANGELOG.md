@@ -1,5 +1,6 @@
 # Changelog
 
+- 2026-07-13 ax-term: Add file listing and download with Range support
 - 2026-07-12 ax-term: Add file upload side panel with drag-drop, CWD tracking, and restart resilience
 - 2026-07-12 ax-term: Embed static files into binary
 - 2026-07-12 ax-term: Add --no-auth flag to disable authentication

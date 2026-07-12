@@ -91,7 +91,32 @@ Query the status of an in-progress upload (used for resuming interrupted uploads
 
 ---
 
-## WebSocket
+### GET /api/download/:token
+
+Download a file using a token. Tokens are generated via the `download` WebSocket control message and expire after 10 minutes of inactivity. While data is streaming, a heartbeat extends the expiry every minute — long transfers and paused downloads are uninterrupted. Tokens are deleted by the GC goroutine after 10 minutes with no active transfer.
+
+Supports `Range` requests (partial content) and `ETag`/`Last-Modified` for resumable downloads. Chrome's download manager can pause and resume transparently.
+
+**Response headers**
+
+| Header                | Value                           |
+| --------------------- | ------------------------------- |
+| `Content-Disposition` | `attachment; filename="..."`    |
+| `Content-Type`        | `application/octet-stream`      |
+| `ETag`                | Hex-encoded file modtime + size |
+| `Last-Modified`       | File modification time          |
+| `Accept-Ranges`       | `bytes`                         |
+
+**Response** `200 OK` — full file content, or `206 Partial Content` for Range requests.
+
+**Errors**
+
+| Status | Description              |
+| ------ | ------------------------ |
+| 404    | Invalid or expired token |
+| 404    | File not found on disk   |
+
+Tokens can be reused for Range retries. A heartbeat goroutine extends the expiry every minute while `ServeContent` is streaming — the token stays valid for the entire transfer plus 10 minutes after disconnection. They are deleted by the GC goroutine after 10 minutes of inactivity.
 
 ### WS /ws
 
@@ -182,6 +207,26 @@ Cancel and clean up an in-progress upload.
 { "type": "upload-cancel", "id": "a1b2c3..." }
 ```
 
+##### list-files
+
+Request a listing of the current working directory.
+
+```json
+{ "type": "list-files" }
+```
+
+Server responds with `file-list` or `file-list-error`.
+
+##### download
+
+Request a one-time download URL for a file relative to the current working directory. The path must not escape the CWD (e.g., `../` is blocked).
+
+```json
+{ "type": "download", "path": "report.pdf" }
+```
+
+Server responds with `download-ready` or `download-error`.
+
 ---
 
 #### Server → Client
@@ -264,6 +309,63 @@ An error occurred during upload.
 
 ```json
 { "type": "upload-error", "message": "incomplete upload" }
+```
+
+##### file-list
+
+Response to `list-files`. Contains the resolved directory path and a list of entries.
+
+```json
+{
+  "type": "file-list",
+  "dir": "/home/user/projects",
+  "files": [
+    { "name": "report.pdf", "size": 4194304, "isDir": false },
+    { "name": "src", "size": 4096, "isDir": true }
+  ]
+}
+```
+
+| Field           | Description             |
+| --------------- | ----------------------- |
+| `dir`           | Resolved directory path |
+| `files[].name`  | File or directory name  |
+| `files[].size`  | Size in bytes           |
+| `files[].isDir` | `true` if directory     |
+
+##### file-list-error
+
+An error occurred while listing files.
+
+```json
+{ "type": "file-list-error", "message": "permission denied" }
+```
+
+##### download-ready
+
+Response to `download`. Provides a one-time URL for downloading the file.
+
+```json
+{
+  "type": "download-ready",
+  "url": "/api/download/a1b2c3...",
+  "filename": "report.pdf"
+}
+```
+
+| Field      | Description                                 |
+| ---------- | ------------------------------------------- |
+| `url`      | URL path for `GET /api/download/<token>`    |
+| `filename` | Original filename (for Content-Disposition) |
+
+The client should navigate to `url` to trigger the browser download. Tokens can be reused for Range retries — a heartbeat keeps the token alive during active transfers, plus 10 minutes after disconnection.
+
+##### download-error
+
+An error occurred preparing the download.
+
+```json
+{ "type": "download-error", "message": "path escapes working directory" }
 ```
 
 ---
