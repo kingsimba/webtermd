@@ -62,7 +62,11 @@ type Server struct {
 
 // New creates a new Server.
 func New(a *auth.Authenticator, staticFS fs.FS, noAuth bool) *Server {
-	uploadDir := filepath.Join(os.TempDir(), "ax-term-uploads")
+	homeDir, _ := os.UserHomeDir()
+	if homeDir == "" {
+		homeDir = "/tmp"
+	}
+	uploadDir := filepath.Join(homeDir, ".ax-term-uploads")
 	os.MkdirAll(uploadDir, 0700)
 
 	s := &Server{
@@ -180,9 +184,17 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	e, ok := s.uploads[id]
 	s.uploadMu.Unlock()
 
-	if !ok || e.Token != token {
+	if !ok {
 		http.Error(w, "invalid or expired upload", http.StatusNotFound)
 		return
+	}
+	// After server restart, a recovered upload may have a different token.
+	// Accept the new token if it's the first request from the new session.
+	if e.Token != token {
+		s.uploadMu.Lock()
+		e.Token = token
+		s.saveMeta(e)
+		s.uploadMu.Unlock()
 	}
 
 	switch r.Method {
@@ -536,11 +548,18 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 				}
 				s.uploadMu.Lock()
 				e, ok := s.uploads[status.ID]
-				s.uploadMu.Unlock()
-				if !ok || e.Token != sessionToken {
+				if !ok {
+					s.uploadMu.Unlock()
 					s.wsSendJSON(conn, map[string]interface{}{"type": "upload-status", "id": status.ID, "exists": false})
 					continue
 				}
+				// Re-own recovered uploads to the new session token
+				// (server restart generates a new session token).
+				if e.Token != sessionToken {
+					e.Token = sessionToken
+					s.saveMeta(e)
+				}
+				s.uploadMu.Unlock()
 				s.wsSendJSON(conn, map[string]interface{}{
 					"type":     "upload-status",
 					"id":       e.ID,

@@ -15,7 +15,7 @@ NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=/home/robot/.ssh
+ReadWritePaths=/home/robot/.ssh /home/robot/.ax-term-uploads
 
 [Install]
 WantedBy=multi-user.target
