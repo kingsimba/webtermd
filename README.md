@@ -47,6 +47,30 @@ ax-term only authenticates the Node.js gateway — not end users. User managemen
 - PTY output is pushed back to the gateway, which forwards it to the browser
 - No framing — raw bytes pass directly between xterm.js and the PTY
 
+## Usage
+
+```
+./bin/ax-term [-addr <address>] [-static <dir>]
+```
+
+| Flag      | Default       | Description                                     |
+| --------- | ------------- | ----------------------------------------------- |
+| `-addr`   | `:8080`       | Listen address (e.g. `:3000`, `127.0.0.1:9090`) |
+| `-static` | auto-detected | Path to static files directory                  |
+
+### Examples
+
+```bash
+# Default port 8080
+./bin/ax-term
+
+# Custom port
+./bin/ax-term -addr :3000
+
+# Localhost only
+./bin/ax-term -addr 127.0.0.1:9090
+```
+
 ## Development
 
 ### Build

@@ -36,10 +36,10 @@ func setupTestServer(t *testing.T) (*httptest.Server, *rsa.PrivateKey, func()) {
 	pubDER := pem.EncodeToMemory(&pem.Block{Type: "RSA PUBLIC KEY", Bytes: pubBytes})
 	os.WriteFile(akPath, pubDER, 0600)
 
-	staticDir := t.TempDir()
+	staticDir := os.DirFS(t.TempDir())
 
 	a := auth.NewWithSSHDir(sshDir)
-	srv := httptest.NewServer(New(a, staticDir))
+	srv := httptest.NewServer(New(a, staticDir, false))
 
 	cleanup := func() {
 		srv.Close()

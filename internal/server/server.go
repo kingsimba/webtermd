@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"io/fs"
 	"log"
 	"net/http"
 	"sync"
@@ -20,21 +21,21 @@ var upgrader = websocket.Upgrader{
 type Server struct {
 	auth       *auth.Authenticator
 	mux        http.ServeMux
-	staticDir  string
+	noAuth     bool
 	activeSess map[*websocket.Conn]*ptysession.Session
 	mu         sync.Mutex
 }
 
 // New creates a new Server.
-func New(a *auth.Authenticator, staticDir string) *Server {
+func New(a *auth.Authenticator, staticFS fs.FS, noAuth bool) *Server {
 	s := &Server{
 		auth:       a,
-		staticDir:  staticDir,
+		noAuth:     noAuth,
 		activeSess: make(map[*websocket.Conn]*ptysession.Session),
 	}
 	s.mux.HandleFunc("/api/challenge", s.handleChallenge)
 	s.mux.HandleFunc("/ws", s.handleWS)
-	s.mux.Handle("/", http.FileServer(http.Dir(staticDir)))
+	s.mux.Handle("/", http.FileServerFS(staticFS))
 	return s
 }
 
@@ -53,16 +54,17 @@ func (s *Server) handleChallenge(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
-	nonce := r.URL.Query().Get("nonce")
-	signature := r.URL.Query().Get("signature")
-	if nonce == "" || signature == "" {
-		http.Error(w, "missing nonce or signature", http.StatusBadRequest)
-		return
-	}
-
-	if !s.auth.Verify(nonce, signature) {
-		http.Error(w, "authentication failed", http.StatusUnauthorized)
-		return
+	if !s.noAuth {
+		nonce := r.URL.Query().Get("nonce")
+		signature := r.URL.Query().Get("signature")
+		if nonce == "" || signature == "" {
+			http.Error(w, "missing nonce or signature", http.StatusBadRequest)
+			return
+		}
+		if !s.auth.Verify(nonce, signature) {
+			http.Error(w, "authentication failed", http.StatusUnauthorized)
+			return
+		}
 	}
 
 	conn, err := upgrader.Upgrade(w, r, nil)
