@@ -1,9 +1,11 @@
 package ptysession
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 
 	"github.com/creack/pty"
 )
@@ -63,6 +65,23 @@ func (s *Session) Close() error {
 	_ = s.pty.Close()
 	_ = s.cmd.Wait()
 	return nil
+}
+
+// GetCWD returns the current working directory of the shell process.
+func (s *Session) GetCWD() (string, error) {
+	if s.cmd.Process == nil {
+		return "", fmt.Errorf("process not started")
+	}
+	link := fmt.Sprintf("/proc/%d/cwd", s.cmd.Process.Pid)
+	return filepath.EvalSymlinks(link)
+}
+
+// PID returns the shell process PID.
+func (s *Session) PID() int {
+	if s.cmd.Process == nil {
+		return 0
+	}
+	return s.cmd.Process.Pid
 }
 
 // Done returns a channel that is closed when the PTY exits.

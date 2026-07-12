@@ -28,6 +28,69 @@ The nonce is a base64-encoded random string. It expires after 60 seconds and is 
 
 ---
 
+### POST /api/upload/:id
+
+Upload a chunk of a file. The upload must have been initiated via WebSocket first.
+
+**Query parameters**
+
+| Parameter | Description                             |
+| --------- | --------------------------------------- |
+| `token`   | Upload token from the WebSocket session |
+| `offset`  | Byte offset to write this chunk at      |
+
+**Request body** — raw binary chunk.
+
+**Response** `200 OK`
+
+```json
+{
+  "bytes_written": 1048576,
+  "received": 1048576,
+  "total": 4194304
+}
+```
+
+| Field           | Description                   |
+| --------------- | ----------------------------- |
+| `bytes_written` | Bytes written from this chunk |
+| `received`      | Total bytes received so far   |
+| `total`         | Expected total file size      |
+
+---
+
+### GET /api/upload/:id
+
+Query the status of an in-progress upload (used for resuming interrupted uploads).
+
+**Query parameters**
+
+| Parameter | Description                             |
+| --------- | --------------------------------------- |
+| `token`   | Upload token from the WebSocket session |
+
+**Response** `200 OK`
+
+```json
+{
+  "id": "a1b2c3...",
+  "filename": "report.pdf",
+  "received": 2097152,
+  "total": 4194304,
+  "dir": "/home/user/projects"
+}
+```
+
+| Field      | Description                         |
+| ---------- | ----------------------------------- |
+| `id`       | Upload ID                           |
+| `filename` | Original filename                   |
+| `received` | Bytes received so far               |
+| `total`    | Expected total file size            |
+| `dir`      | Target directory (CWD at init time) |
+
+---
+
 ## WebSocket
 
 ### WS /ws
@@ -49,18 +112,213 @@ The server verifies the signature against the runtime user's `authorized_keys`. 
 
 **Message format**
 
-Binary, no framing. Raw bytes flow directly between xterm.js (via the gateway) and the PTY.
+Two message types flow over the same WebSocket:
 
-| Direction       | Content                        |
-| --------------- | ------------------------------ |
-| Client → Server | Keystrokes (UTF-8)             |
-| Server → Client | Terminal output (ANSI-escaped) |
+| Type   | Direction       | Content                        |
+| ------ | --------------- | ------------------------------ |
+| Binary | Client → Server | Keystrokes (UTF-8)             |
+| Binary | Server → Client | Terminal output (ANSI-escaped) |
+| Text   | Client → Server | JSON control messages          |
+| Text   | Server → Client | JSON control messages          |
 
-**Lifecycle**
+Binary messages are raw PTY I/O — they flow directly between xterm.js and the bash process.
+
+Text messages are JSON with a `type` field. They carry control-plane data (resize, CWD updates, file uploads).
+
+---
+
+### WebSocket Control Messages
+
+#### Client → Server
+
+##### resize
+
+Sent when the terminal window changes size.
+
+```json
+{ "type": "resize", "rows": 24, "cols": 80 }
+```
+
+##### upload-init
+
+Request a new upload. The server creates a temp file, returns an upload ID.
+
+```json
+{ "type": "upload-init", "filename": "report.pdf", "size": 4194304 }
+```
+
+| Field      | Description              |
+| ---------- | ------------------------ |
+| `filename` | Original file name       |
+| `size`     | Total file size in bytes |
+
+Server responds with `upload-init`.
+
+##### upload-commit
+
+Finalize a completed upload. The server moves the temp file to the target directory (CWD at init time).
+
+```json
+{ "type": "upload-commit", "id": "a1b2c3..." }
+```
+
+Server responds with `upload-done` or `upload-error`.
+
+##### upload-status
+
+Query the server for an in-progress upload's state (used to resume after reconnect).
+
+```json
+{ "type": "upload-status", "id": "a1b2c3..." }
+```
+
+Server responds with `upload-status`.
+
+##### upload-cancel
+
+Cancel and clean up an in-progress upload.
+
+```json
+{ "type": "upload-cancel", "id": "a1b2c3..." }
+```
+
+---
+
+#### Server → Client
+
+##### session
+
+Sent immediately after WebSocket upgrade. Provides an upload token valid for this session.
+
+```json
+{
+  "type": "session",
+  "upload_token": "deadbeef...",
+  "upload_prefix": "/api/upload/"
+}
+```
+
+| Field           | Description                                 |
+| --------------- | ------------------------------------------- |
+| `upload_token`  | Token required for HTTP upload endpoints    |
+| `upload_prefix` | URL prefix for constructing upload requests |
+
+##### cwd
+
+Sent when the shell's working directory changes. Polled every 500ms via `/proc/<pid>/cwd`.
+
+```json
+{ "type": "cwd", "path": "/home/user/projects" }
+```
+
+##### upload-init
+
+Server response to `upload-init`. The client should begin uploading chunks via HTTP.
+
+```json
+{
+  "type": "upload-init",
+  "id": "a1b2c3...",
+  "dir": "/home/user/projects",
+  "chunk_size": 1048576
+}
+```
+
+| Field        | Description                                   |
+| ------------ | --------------------------------------------- |
+| `id`         | Unique upload ID (use in HTTP chunk requests) |
+| `dir`        | Target directory where the file will land     |
+| `chunk_size` | Suggested chunk size (1 MiB)                  |
+
+##### upload-done
+
+Upload completed and file was moved to the target directory.
+
+```json
+{
+  "type": "upload-done",
+  "id": "a1b2c3...",
+  "filename": "report.pdf",
+  "path": "/home/user/projects/report.pdf"
+}
+```
+
+##### upload-status
+
+Response to an `upload-status` query. `exists` is `false` if the upload was not found (expired or cleaned up).
+
+```json
+{
+  "type": "upload-status",
+  "id": "a1b2c3...",
+  "filename": "report.pdf",
+  "received": 2097152,
+  "total": 4194304,
+  "exists": true
+}
+```
+
+##### upload-error
+
+An error occurred during upload.
+
+```json
+{ "type": "upload-error", "message": "incomplete upload" }
+```
+
+---
+
+### Upload Protocol Flow
+
+```
+Client                          Server
+  │                                │
+  │  ws: upload-init               │
+  │  {"filename":"f.pdf","size":N} │
+  │ ─────────────────────────────> │  creates temp file
+  │                                │
+  │  ws: upload-init               │
+  │  {"id":"abc","dir":"/home/.."} │
+  │ <────────────────────────────  │
+  │                                │
+  │  HTTP POST /api/upload/abc     │
+  │  ?token=X&offset=0             │
+  │  [chunk 1 binary]              │
+  │ ─────────────────────────────> │  writes at offset 0
+  │                                │
+  │  HTTP POST /api/upload/abc     │
+  │  ?token=X&offset=1048576       │
+  │  [chunk 2 binary]              │
+  │ ─────────────────────────────> │  writes at offset 1M
+  │       ... (repeat) ...         │
+  │                                │
+  │  ws: upload-commit             │
+  │  {"id":"abc"}                  │
+  │ ─────────────────────────────> │  moves temp → target dir
+  │                                │
+  │  ws: upload-done               │
+  │  {"id":"abc","filename":"f.pdf"}│
+  │ <────────────────────────────  │
+```
+
+**Resume after disconnect:** If the WebSocket drops during upload, the client stores the upload ID and last byte offset in `localStorage`. On reconnect, it queries `upload-status` to find how many bytes the server already has, then resumes chunk uploads from that offset.
+
+**Server restart resilience:** Each upload has two files on disk:
+
+- `<id>.download` — the partial file data
+- `<id>.json` — upload metadata (filename, size, received bytes, target directory, expiry)
+
+On startup, the server scans the upload directory for `.json` files and rebuilds its in-memory state. If the client reconnects within the 30-minute expiry window with the same upload ID and matching session token, it can resume. On successful commit, the `.download` file is renamed to the target filename and the `.json` file is deleted. On cancel or GC expiry, both files are removed.
+
+---
+
+### Lifecycle
 
 1. Gateway fetches a challenge from `GET /api/challenge`
 2. Gateway signs the nonce with its private key
 3. Gateway opens `WS /ws?nonce=...&signature=...`
 4. ax-term verifies the signature, spawns a Bash PTY
-5. Gateway relays keystrokes and output between browser and ax-term
-6. On disconnect, the PTY is terminated
+5. Server sends `session` message with an upload token
+6. Gateway relays keystrokes and output between browser and ax-term
+7. Shell CWD changes are pushed to the client as `cwd` messages
+8. On disconnect, the PTY is terminated

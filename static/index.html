@@ -8,7 +8,102 @@
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { height: 100%; overflow: hidden; background: #1e1e1e; }
+
+  #app { display: flex; height: 100%; }
+
+  /* --- main area --- */
+  #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+  #toolbar {
+    height: 30px; background: #323233; border-bottom: 1px solid #3c3c3c;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 8px; flex-shrink: 0;
+  }
+  #toolbar-left { display: flex; align-items: center; min-width: 0; flex: 1; }
+  #cwd-inline {
+    color: #8bc34a; font-family: monospace; font-size: 12px;
+    margin-left: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  #toggle-sidebar {
+    background: none; border: 1px solid #555; color: #ccc; cursor: pointer;
+    font-size: 16px; padding: 2px 8px; border-radius: 3px; line-height: 1;
+    flex-shrink: 0;
+  }
+  #toggle-sidebar:hover { background: #444; }
+
+  #terminal-container { flex: 1; overflow: hidden; }
   #terminal { height: 100%; }
+
+  /* --- side panel (right) --- */
+  #sidebar {
+    width: 240px; min-width: 240px; background: #252526;
+    border-left: 1px solid #3c3c3c; color: #ccc;
+    display: flex; flex-direction: column; font-family: monospace;
+    font-size: 13px; overflow: hidden;
+    transition: width 0.2s, min-width 0.2s;
+  }
+  #sidebar.collapsed { width: 0; min-width: 0; border-left: none; }
+
+  #sidebar-header {
+    padding: 10px 12px; font-weight: bold; color: #e0e0e0;
+    border-bottom: 1px solid #3c3c3c; display: flex;
+    justify-content: space-between; align-items: center; flex-shrink: 0;
+  }
+
+  #sidebar-cwd {
+    padding: 10px 12px; word-break: break-all; color: #8bc34a;
+    border-bottom: 1px solid #3c3c3c; min-height: 40px; flex-shrink: 0;
+    font-size: 12px;
+  }
+  #sidebar-cwd .label { color: #888; font-size: 10px; text-transform: uppercase; }
+
+  #sidebar-uploads { padding: 10px 12px; flex: 1; overflow-y: auto; }
+  #sidebar-uploads .empty-hint {
+    color: #555; text-align: center; padding: 20px 0; font-size: 12px;
+    font-style: italic;
+  }
+  #sidebar-uploads .item {
+    padding: 6px 0; border-bottom: 1px solid #333; font-size: 12px;
+  }
+  #sidebar-uploads .item .name {
+    display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    margin-bottom: 4px;
+  }
+  #sidebar-uploads .item .bar {
+    height: 5px; background: #444; border-radius: 3px;
+  }
+  #sidebar-uploads .item .bar-fill {
+    height: 100%; background: #4caf50; border-radius: 3px; transition: width 0.3s;
+    width: 0%;
+  }
+  #sidebar-uploads .item.done .bar-fill { background: #8bc34a; }
+  #sidebar-uploads .item.error .bar-fill { background: #d32f2f; }
+  #sidebar-uploads .item.paused .bar-fill { background: #ff9800; }
+  #sidebar-uploads .item .status-text {
+    font-size: 10px; color: #888; margin-top: 2px;
+  }
+  #sidebar-uploads .item .actions {
+    display: flex; gap: 6px; margin-top: 4px;
+  }
+  #sidebar-uploads .item .actions button {
+    background: #3c3c3c; border: none; color: #ccc; cursor: pointer;
+    font-size: 10px; padding: 2px 8px; border-radius: 3px;
+  }
+  #sidebar-uploads .item .actions button:hover { background: #555; }
+  #sidebar-uploads .item.done .actions,
+  #sidebar-uploads .item.cancelled .actions { display: none; }
+
+  /* --- drop zone --- */
+  #drop-zone {
+    margin: 8px 12px 12px 12px; padding: 18px 12px; border: 2px dashed #555;
+    border-radius: 6px; text-align: center; color: #888; font-size: 12px;
+    flex-shrink: 0; cursor: pointer; transition: border-color 0.2s, color 0.2s;
+  }
+  #drop-zone .drop-icon { font-size: 24px; display: block; margin-bottom: 4px; opacity: 0.5; }
+  #drop-zone .drop-hint { display: block; }
+  #drop-zone:hover, #drop-zone.drag-over { border-color: #8bc34a; color: #8bc34a; }
+  #drop-zone:hover .drop-icon, #drop-zone.drag-over .drop-icon { opacity: 0.8; }
+
   #status {
     position: fixed; top: 0; left: 0; right: 0;
     background: #d32f2f; color: #fff; padding: 8px 16px;
@@ -18,18 +113,69 @@
 </head>
 <body>
 <div id="status"></div>
-<div id="terminal"></div>
+<div id="app">
+  <div id="main">
+    <div id="toolbar">
+      <div id="toolbar-left">
+        <span id="cwd-inline"></span>
+      </div>
+      <button id="toggle-sidebar" title="Toggle file panel">☰</button>
+    </div>
+    <div id="terminal-container"><div id="terminal"></div></div>
+  </div>
+  <div id="sidebar" class="collapsed">
+    <div id="sidebar-header">
+      <span>Files</span>
+    </div>
+    <div id="sidebar-cwd">
+      <div class="label">CWD</div>
+      <div id="cwd-path">-</div>
+    </div>
+    <div id="sidebar-uploads">
+      <div class="empty-hint">No uploads</div>
+    </div>
+    <div id="drop-zone">
+      <span class="drop-icon">&#8628;</span>
+      <span class="drop-hint">Drop files here to upload<br>to current directory</span>
+    </div>
+  </div>
+</div>
 <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
 <script>
 (function() {
-  const status = document.getElementById('status');
+  var CHUNK_SIZE = 1 << 20; // 1 MiB
+
+  // --- DOM refs ---
+  var status = document.getElementById('status');
+  var sidebar = document.getElementById('sidebar');
+  var toggleBtn = document.getElementById('toggle-sidebar');
+  var cwdPath = document.getElementById('cwd-path');
+  var cwdInline = document.getElementById('cwd-inline');
+  var uploadsList = document.getElementById('sidebar-uploads');
+  var dropZone = document.getElementById('drop-zone');
+  var emptyHint = uploadsList.querySelector('.empty-hint');
+
   function showError(msg) {
     status.textContent = msg;
     status.style.display = 'block';
+    setTimeout(function() { status.style.display = 'none'; }, 5000);
   }
 
-  const term = new Terminal({
+  // --- sidebar toggle ---
+  var sidebarVisible = false;
+  toggleBtn.addEventListener('click', function() {
+    sidebarVisible = !sidebarVisible;
+    if (sidebarVisible) {
+      sidebar.classList.remove('collapsed');
+    } else {
+      sidebar.classList.add('collapsed');
+    }
+    setTimeout(function() { fitAddon.fit(); }, 250);
+  });
+
+  // --- xterm ---
+  var term = new Terminal({
     cursorBlink: true,
     fontSize: 14,
     fontFamily: 'Menlo, Monaco, "Courier New", monospace',
@@ -41,70 +187,356 @@
     }
   });
 
-  const fitAddon = new FitAddon.FitAddon();
+  var fitAddon = new FitAddon.FitAddon();
   term.loadAddon(fitAddon);
   term.open(document.getElementById('terminal'));
   fitAddon.fit();
 
-  window.addEventListener('resize', () => fitAddon.fit());
+  window.addEventListener('resize', function() { fitAddon.fit(); });
 
-  let ws = null;
+  // --- state ---
+  var ws = null;
+  var uploadToken = '';
+  var uploadPrefix = '';
+  var uploads = {};        // id -> { el, filename, received, total, file, xhr, offset, paused }
+  var pendingUploads = {};  // filename -> File object (waiting for upload-init ack)
 
+  function setCWD(path) {
+    cwdPath.textContent = path;
+    cwdInline.textContent = path;
+    cwdInline.title = path;
+  }
+
+  // --- upload progress UI ---
+  function hideEmptyHint() {
+    if (emptyHint) { emptyHint.style.display = 'none'; }
+  }
+
+  function showEmptyHint() {
+    var hasItems = uploadsList.querySelector('.item');
+    if (emptyHint) { emptyHint.style.display = hasItems ? 'none' : ''; }
+  }
+
+  function getUploadEl(id) {
+    if (!uploads[id]) {
+      var el = document.createElement('div');
+      el.className = 'item';
+      el.innerHTML = '<span class="name"></span>' +
+        '<div class="bar"><div class="bar-fill"></div></div>' +
+        '<span class="status-text"></span>' +
+        '<div class="actions">' +
+          '<button class="btn-pause">⏸ Pause</button>' +
+          '<button class="btn-cancel">✕ Cancel</button>' +
+        '</div>';
+      uploadsList.appendChild(el);
+
+      uploads[id] = { el: el, offset: 0, paused: false };
+
+      el.querySelector('.btn-pause').addEventListener('click', function() {
+        togglePause(id);
+      });
+      el.querySelector('.btn-cancel').addEventListener('click', function() {
+        cancelUpload(id);
+      });
+
+      hideEmptyHint();
+    }
+    return uploads[id];
+  }
+
+  function updateUpload(id, filename, received, total, done, error) {
+    var u = getUploadEl(id);
+    u.filename = filename;
+    u.received = received;
+    u.total = total;
+    var pct = total > 0 ? Math.round(received / total * 100) : 0;
+    u.el.querySelector('.name').textContent = filename;
+    u.el.querySelector('.bar-fill').style.width = pct + '%';
+
+    var statusEl = u.el.querySelector('.status-text');
+    var pauseBtn = u.el.querySelector('.btn-pause');
+
+    if (done) {
+      u.el.classList.add('done');
+      u.el.classList.remove('error', 'paused');
+      statusEl.textContent = 'Done';
+      setTimeout(function() {
+        if (u.el && u.el.parentNode) u.el.parentNode.removeChild(u.el);
+        delete uploads[id];
+        showEmptyHint();
+      }, 3000);
+    } else if (error) {
+      u.el.classList.add('error');
+      u.el.classList.remove('done', 'paused');
+      statusEl.textContent = 'Failed — will retry';
+      if (pauseBtn) pauseBtn.textContent = '▶ Resume';
+    } else if (u.paused) {
+      u.el.classList.add('paused');
+      u.el.classList.remove('done', 'error');
+      statusEl.textContent = 'Paused — ' + formatSize(received) + ' / ' + formatSize(total);
+      if (pauseBtn) pauseBtn.textContent = '▶ Resume';
+    } else {
+      u.el.classList.remove('done', 'error', 'paused');
+      statusEl.textContent = formatSize(received) + ' / ' + formatSize(total);
+      if (pauseBtn) pauseBtn.textContent = '⏸ Pause';
+    }
+  }
+
+  function togglePause(id) {
+    var u = uploads[id];
+    if (!u || !u.file) return;
+    u.paused = !u.paused;
+    if (u.paused) {
+      // Abort current XHR if any.
+      if (u.xhr) { u.xhr.abort(); u.xhr = null; }
+      updateUpload(id, u.filename, u.received, u.total);
+    } else {
+      // Resume.
+      updateUpload(id, u.filename, u.received, u.total);
+      sendChunk(id);
+    }
+  }
+
+  function cancelUpload(id) {
+    var u = uploads[id];
+    if (!u) return;
+    if (u.xhr) { u.xhr.abort(); u.xhr = null; }
+    ws.send(JSON.stringify({ type: 'upload-cancel', id: id }));
+    try { localStorage.removeItem('ax-upload-' + id); } catch(e) {}
+    if (u.el && u.el.parentNode) u.el.parentNode.removeChild(u.el);
+    delete uploads[id];
+    showEmptyHint();
+  }
+
+  function formatSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / 1048576).toFixed(1) + ' MB';
+  }
+
+  // --- chunk upload engine ---
+  function sendChunk(id) {
+    var u = uploads[id];
+    if (!u || u.paused) return;
+    if (u.offset >= u.total) {
+      ws.send(JSON.stringify({ type: 'upload-commit', id: id }));
+      return;
+    }
+
+    var end = Math.min(u.offset + CHUNK_SIZE, u.total);
+    var blob = u.file.slice(u.offset, end);
+
+    var xhr = new XMLHttpRequest();
+    u.xhr = xhr;
+    var url = uploadPrefix + id + '?token=' + encodeURIComponent(uploadToken) + '&offset=' + u.offset;
+    xhr.open('POST', url);
+    xhr.onload = function() {
+      if (!uploads[id]) return; // cancelled
+      if (xhr.status >= 200 && xhr.status < 300) {
+        var resp = JSON.parse(xhr.responseText);
+        u.offset += resp.bytes_written;
+        u.xhr = null;
+        updateUpload(id, u.filename, resp.received, resp.total);
+        sendChunk(id);
+      } else {
+        u.paused = true;
+        u.xhr = null;
+        updateUpload(id, u.filename, u.offset, u.total, false, true);
+        showError('Upload chunk failed: ' + xhr.status);
+      }
+    };
+    xhr.onerror = function() {
+      if (!uploads[id]) return;
+      u.paused = true;
+      u.xhr = null;
+      updateUpload(id, u.filename, u.offset, u.total, false, true);
+      showError('Upload interrupted — will resume on reconnect');
+      try {
+        localStorage.setItem('ax-upload-' + id, JSON.stringify({
+          filename: u.filename, size: u.total, offset: u.offset
+        }));
+      } catch(e) {}
+    };
+    xhr.ontimeout = function() {
+      if (!uploads[id]) return;
+      u.paused = true;
+      u.xhr = null;
+    };
+    xhr.timeout = 30000;
+    xhr.send(blob);
+  }
+
+  function startChunkedUpload(id, file) {
+    var u = uploads[id];
+    u.file = file;
+    u.total = file.size;
+    u.offset = 0;
+    u.paused = false;
+    sendChunk(id);
+  }
+
+  function uploadFile(file) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      showError('Not connected');
+      return;
+    }
+    pendingUploads[file.name] = file;
+    ws.send(JSON.stringify({
+      type: 'upload-init',
+      filename: file.name,
+      size: file.size
+    }));
+  }
+
+  function resumeUploads() {
+    var keys = [];
+    for (var i = 0; i < localStorage.length; i++) {
+      var k = localStorage.key(i);
+      if (k && k.indexOf('ax-upload-') === 0) keys.push(k);
+    }
+    keys.forEach(function(k) {
+      try {
+        var id = k.replace('ax-upload-', '');
+        ws.send(JSON.stringify({ type: 'upload-status', id: id }));
+      } catch(e) {}
+    });
+  }
+
+  // --- drag and drop ---
+  dropZone.addEventListener('dragover', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    dropZone.classList.add('drag-over');
+  });
+  dropZone.addEventListener('dragleave', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    dropZone.classList.remove('drag-over');
+  });
+  dropZone.addEventListener('drop', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    dropZone.classList.remove('drag-over');
+    var files = e.dataTransfer.files;
+    for (var i = 0; i < files.length; i++) {
+      uploadFile(files[i]);
+    }
+  });
+  dropZone.addEventListener('click', function() {
+    var input = document.createElement('input');
+    input.type = 'file';
+    input.onchange = function() {
+      for (var i = 0; i < input.files.length; i++) {
+        uploadFile(input.files[i]);
+      }
+    };
+    input.click();
+  });
+
+  // --- WebSocket ---
   function connect() {
-    const basePath = location.pathname.replace(/\/[^/]*$/, '');
+    var basePath = location.pathname.replace(/\/[^/]*$/, '');
     fetch(basePath + '/api/challenge')
-      .then(r => {
+      .then(function(r) {
         if (!r.ok) throw new Error('challenge failed: ' + r.status);
         return r.json();
       })
-      .then(data => {
-        const nonce = data.nonce;
-        // The gateway would sign here — for direct access, pass a pre-signed nonce
-        // or use a development bypass. In production, the Node.js gateway handles this.
-        const signature = ''; // placeholder — gateway provides this
-        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const url = proto + '//' + location.host + basePath + '/ws?nonce=' + encodeURIComponent(nonce) + '&signature=' + encodeURIComponent(signature);
+      .then(function(data) {
+        var nonce = data.nonce;
+        var signature = '';
+        var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        var url = proto + '//' + location.host + basePath + '/ws?nonce=' + encodeURIComponent(nonce) + '&signature=' + encodeURIComponent(signature);
         ws = new WebSocket(url);
         ws.binaryType = 'arraybuffer';
 
-        ws.onopen = () => {
+        ws.onopen = function() {
           term.focus();
-          term.onData(data => {
+          term.onData(function(data) {
             if (ws && ws.readyState === WebSocket.OPEN) {
               ws.send(data);
             }
           });
 
-          term.onResize(({rows, cols}) => {
+          term.onResize(function(_a) {
             if (ws && ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify({rows, cols}));
+              ws.send(JSON.stringify({
+                type: 'resize',
+                rows: _a.rows,
+                cols: _a.cols
+              }));
             }
           });
         };
 
-        ws.onmessage = ev => {
-          const data = new Uint8Array(ev.data);
-          term.write(data);
-        };
+        ws.onmessage = wsMainHandler;
 
-        ws.onclose = () => {
+        ws.onclose = function() {
           term.write('\r\n\x1b[31m[disconnected]\x1b[0m\r\n');
-          // Reconnect after 2s
           setTimeout(connect, 2000);
         };
 
-        ws.onerror = () => {
+        ws.onerror = function() {
           showError('WebSocket connection failed');
         };
       })
-      .catch(err => {
+      .catch(function(err) {
         showError('Connection error: ' + err.message);
         setTimeout(connect, 3000);
       });
+  }
+
+  function wsMainHandler(ev) {
+    if (typeof ev.data === 'string') {
+      try {
+        var msg = JSON.parse(ev.data);
+        switch (msg.type) {
+        case 'session':
+          uploadToken = msg.upload_token;
+          uploadPrefix = msg.upload_prefix;
+          resumeUploads();
+          break;
+
+        case 'cwd':
+          setCWD(msg.path);
+          break;
+
+        case 'upload-init':
+          var f = pendingUploads[msg.filename];
+          var total = f ? f.size : 0;
+          updateUpload(msg.id, msg.filename || '', 0, total);
+          if (f) {
+            delete pendingUploads[msg.filename];
+            startChunkedUpload(msg.id, f);
+          }
+          break;
+
+        case 'upload-error':
+          showError('Upload: ' + msg.message);
+          break;
+
+        case 'upload-done':
+          updateUpload(msg.id, msg.filename, msg.total, msg.total, true);
+          try { localStorage.removeItem('ax-upload-' + msg.id); } catch(e) {}
+          break;
+
+        case 'upload-status':
+          if (msg.exists) {
+            updateUpload(msg.id, msg.filename, msg.received, msg.total);
+          } else {
+            try { localStorage.removeItem('ax-upload-' + msg.id); } catch(e) {}
+          }
+          break;
+        }
+      } catch(e) {}
+    } else {
+      // Binary = PTY output.
+      term.write(new Uint8Array(ev.data));
+    }
   }
 
   connect();
 })();
 </script>
 </body>
+</html>
 </html>
