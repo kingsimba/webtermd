@@ -1,0 +1,21 @@
+[Unit]
+Description=ax-term Web Terminal
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=robot
+ExecStart=/opt/ax-term/ax-term --addr=:8080 --static=/opt/ax-term/static
+Restart=always
+RestartSec=5
+
+# Security hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/robot/.ssh
+
+[Install]
+WantedBy=multi-user.target

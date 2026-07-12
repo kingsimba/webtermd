@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ax-term</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; background: #1e1e1e; }
+  #terminal { height: 100%; }
+  #status {
+    position: fixed; top: 0; left: 0; right: 0;
+    background: #d32f2f; color: #fff; padding: 8px 16px;
+    font-family: monospace; font-size: 14px; display: none; z-index: 100;
+  }
+</style>
+</head>
+<body>
+<div id="status"></div>
+<div id="terminal"></div>
+<script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+<script>
+(function() {
+  const status = document.getElementById('status');
+  function showError(msg) {
+    status.textContent = msg;
+    status.style.display = 'block';
+  }
+
+  const term = new Terminal({
+    cursorBlink: true,
+    fontSize: 14,
+    fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+    theme: {
+      background: '#1e1e1e',
+      foreground: '#d4d4d4',
+      cursor: '#d4d4d4',
+      selectionBackground: '#264f78'
+    }
+  });
+
+  const fitAddon = new FitAddon.FitAddon();
+  term.loadAddon(fitAddon);
+  term.open(document.getElementById('terminal'));
+  fitAddon.fit();
+
+  window.addEventListener('resize', () => fitAddon.fit());
+
+  let ws = null;
+
+  function connect() {
+    fetch('/api/challenge')
+      .then(r => {
+        if (!r.ok) throw new Error('challenge failed: ' + r.status);
+        return r.json();
+      })
+      .then(data => {
+        const nonce = data.nonce;
+        // The gateway would sign here — for direct access, pass a pre-signed nonce
+        // or use a development bypass. In production, the Node.js gateway handles this.
+        const signature = ''; // placeholder — gateway provides this
+        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const url = proto + '//' + location.host + '/ws?nonce=' + encodeURIComponent(nonce) + '&signature=' + encodeURIComponent(signature);
+        ws = new WebSocket(url);
+        ws.binaryType = 'arraybuffer';
+
+        ws.onopen = () => {
+          term.focus();
+          term.onData(data => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+              ws.send(data);
+            }
+          });
+
+          term.onResize(({rows, cols}) => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({rows, cols}));
+            }
+          });
+        };
+
+        ws.onmessage = ev => {
+          const data = new Uint8Array(ev.data);
+          term.write(data);
+        };
+
+        ws.onclose = () => {
+          term.write('\r\n\x1b[31m[disconnected]\x1b[0m\r\n');
+          // Reconnect after 2s
+          setTimeout(connect, 2000);
+        };
+
+        ws.onerror = () => {
+          showError('WebSocket connection failed');
+        };
+      })
+      .catch(err => {
+        showError('Connection error: ' + err.message);
+        setTimeout(connect, 3000);
+      });
+  }
+
+  connect();
+})();
+</script>
+</body>
+</html>

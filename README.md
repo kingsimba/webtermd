@@ -52,8 +52,10 @@ ax-term only authenticates the Node.js gateway — not end users. User managemen
 ### Build
 
 ```bash
-./build.py              # native build (local testing)
-./build.py --arm64      # cross-compile for ARM64 deployment
+./dev build            # native build (local testing)
+./dev build --arm64    # cross-compile for ARM64 deployment
+./dev test             # run tests
+./dev test -v          # run tests with verbose output
 ```
 
 ## Deployment
