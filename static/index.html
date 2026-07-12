@@ -51,7 +51,8 @@
   let ws = null;
 
   function connect() {
-    fetch('/api/challenge')
+    const basePath = location.pathname.replace(/\/[^/]*$/, '');
+    fetch(basePath + '/api/challenge')
       .then(r => {
         if (!r.ok) throw new Error('challenge failed: ' + r.status);
         return r.json();
@@ -62,7 +63,7 @@
         // or use a development bypass. In production, the Node.js gateway handles this.
         const signature = ''; // placeholder — gateway provides this
         const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const url = proto + '//' + location.host + '/ws?nonce=' + encodeURIComponent(nonce) + '&signature=' + encodeURIComponent(signature);
+        const url = proto + '//' + location.host + basePath + '/ws?nonce=' + encodeURIComponent(nonce) + '&signature=' + encodeURIComponent(signature);
         ws = new WebSocket(url);
         ws.binaryType = 'arraybuffer';
 
