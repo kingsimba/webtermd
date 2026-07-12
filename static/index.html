@@ -48,13 +48,7 @@
     padding: 10px 12px; font-weight: bold; color: #e0e0e0;
     border-bottom: 1px solid #3c3c3c; display: flex;
     justify-content: space-between; align-items: center; flex-shrink: 0;
-    gap: 8px;
   }
-  #btn-list-files {
-    background: #3c3c3c; border: 1px solid #555; color: #ccc; cursor: pointer;
-    font-size: 11px; padding: 3px 8px; border-radius: 3px; flex-shrink: 0;
-  }
-  #btn-list-files:hover { background: #555; }
 
   #sidebar-cwd {
     padding: 10px 12px; word-break: break-all; color: #8bc34a;
@@ -63,7 +57,14 @@
   }
   #sidebar-cwd .label { color: #888; font-size: 10px; text-transform: uppercase; }
 
-  #sidebar-files { padding: 10px 12px; flex: 1; overflow-y: auto; }
+  #sidebar-files { padding: 0 12px 10px 12px; flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
+  #file-filter {
+    width: 100%; padding: 4px 8px; margin: 8px 0; background: #1e1e1e; border: 1px solid #555;
+    color: #ccc; font-size: 12px; font-family: monospace; border-radius: 3px; outline: none;
+    flex-shrink: 0;
+  }
+  #file-filter:focus { border-color: #8bc34a; }
+  #file-items { flex: 1; overflow-y: auto; }
   #sidebar-files .empty-hint {
     color: #555; text-align: center; padding: 20px 0; font-size: 12px;
     font-style: italic;
@@ -156,14 +157,16 @@
   <div id="sidebar" class="collapsed">
     <div id="sidebar-header">
       <span>Files</span>
-      <button id="btn-list-files">List Files</button>
     </div>
     <div id="sidebar-cwd">
       <div class="label">CWD</div>
       <div id="cwd-path">-</div>
     </div>
     <div id="sidebar-files">
-      <div class="empty-hint">Click "List Files" to browse</div>
+      <input id="file-filter" type="text" placeholder="Filter...">
+      <div id="file-items">
+        <div class="empty-hint">Click "List Files" to browse</div>
+      </div>
     </div>
     <div id="sidebar-uploads">
       <div class="empty-hint">No uploads</div>
@@ -202,6 +205,7 @@
     sidebarVisible = !sidebarVisible;
     if (sidebarVisible) {
       sidebar.classList.remove('collapsed');
+      refreshFileList();
     } else {
       sidebar.classList.add('collapsed');
     }
@@ -243,26 +247,41 @@
     cwdInline.title = path;
   }
 
+  var lastListedCWD = '';
+
+  function refreshFileList() {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      var cwd = cwdPath.textContent;
+      if (cwd !== '-' && cwd !== lastListedCWD) {
+        lastListedCWD = cwd;
+        ws.send(JSON.stringify({ type: 'list-files' }));
+      }
+    }
+  }
+
+
   // --- file list ---
   var filesList = document.getElementById('sidebar-files');
-  var filesEmptyHint = filesList.querySelector('.empty-hint');
+  var fileItems = document.getElementById('file-items');
+  var fileFilter = document.getElementById('file-filter');
+  var lastFiles = [];
 
-  document.getElementById('btn-list-files').addEventListener('click', function() {
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-      showError('Not connected');
-      return;
-    }
-    filesList.innerHTML = '<div class="empty-hint">Loading...</div>';
-    ws.send(JSON.stringify({ type: 'list-files' }));
+  fileFilter.addEventListener('input', function() {
+    renderFiltered();
   });
 
-  function renderFileList(dir, files) {
-    filesList.innerHTML = '';
-    if (files.length === 0) {
-      filesList.innerHTML = '<div class="empty-hint">Directory is empty</div>';
+  function renderFiltered() {
+    var query = fileFilter.value.toLowerCase();
+    var filtered = lastFiles;
+    if (query) {
+      filtered = lastFiles.filter(function(f) { return f.name.toLowerCase().indexOf(query) !== -1; });
+    }
+    fileItems.innerHTML = '';
+    if (filtered.length === 0) {
+      fileItems.innerHTML = '<div class="empty-hint">' + (query ? 'No matches' : 'Directory is empty') + '</div>';
       return;
     }
-    files.forEach(function(f) {
+    filtered.forEach(function(f) {
       var item = document.createElement('div');
       item.className = 'file-item';
 
@@ -292,8 +311,14 @@
         item.appendChild(dlBtn);
       }
 
-      filesList.appendChild(item);
+      fileItems.appendChild(item);
     });
+  }
+
+  function renderFileList(dir, files) {
+    lastListedCWD = dir;
+    lastFiles = files;
+    renderFiltered();
   }
 
   function triggerDownload(url) {
@@ -598,6 +623,7 @@
 
         case 'cwd':
           setCWD(msg.path);
+          refreshFileList();
           break;
 
         case 'upload-init':
@@ -632,7 +658,7 @@
           break;
 
         case 'file-list-error':
-          filesList.innerHTML = '<div class="empty-hint" style="color:#d32f2f">' + msg.message + '</div>';
+          fileItems.innerHTML = '<div class="empty-hint" style="color:#d32f2f">' + msg.message + '</div>';
           break;
 
         case 'download-ready':
