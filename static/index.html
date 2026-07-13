@@ -1,685 +1,938 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ax-term</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css">
-<style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body { height: 100%; overflow: hidden; background: #1e1e1e; }
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ax-term</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
 
-  #app { display: flex; height: 100%; }
+    html,
+    body {
+      height: 100%;
+      overflow: hidden;
+      background: #1e1e1e;
+    }
 
-  /* --- main area --- */
-  #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+    #app {
+      display: flex;
+      height: 100%;
+    }
 
-  #toolbar {
-    height: 30px; background: #323233; border-bottom: 1px solid #3c3c3c;
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 0 8px; flex-shrink: 0;
-  }
-  #toolbar-left { display: flex; align-items: center; min-width: 0; flex: 1; }
-  #cwd-inline {
-    color: #8bc34a; font-family: monospace; font-size: 12px;
-    margin-left: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  #toggle-sidebar {
-    background: none; border: 1px solid #555; color: #ccc; cursor: pointer;
-    font-size: 16px; padding: 2px 8px; border-radius: 3px; line-height: 1;
-    flex-shrink: 0;
-  }
-  #toggle-sidebar:hover { background: #444; }
+    /* --- main area --- */
+    #main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
 
-  #terminal-container { flex: 1; overflow: hidden; }
-  #terminal { height: 100%; }
+    #toolbar {
+      height: 30px;
+      background: #323233;
+      border-bottom: 1px solid #3c3c3c;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 8px;
+      flex-shrink: 0;
+    }
 
-  /* --- side panel (right) --- */
-  #sidebar {
-    width: 240px; min-width: 240px; background: #252526;
-    border-left: 1px solid #3c3c3c; color: #ccc;
-    display: flex; flex-direction: column; font-family: monospace;
-    font-size: 13px; overflow: hidden;
-    transition: width 0.2s, min-width 0.2s;
-  }
-  #sidebar.collapsed { width: 0; min-width: 0; border-left: none; }
+    #toolbar-left {
+      display: flex;
+      align-items: center;
+      min-width: 0;
+      flex: 1;
+    }
 
-  #sidebar-header {
-    padding: 10px 12px; font-weight: bold; color: #e0e0e0;
-    border-bottom: 1px solid #3c3c3c; display: flex;
-    justify-content: space-between; align-items: center; flex-shrink: 0;
-  }
+    #cwd-inline {
+      color: #8bc34a;
+      font-family: monospace;
+      font-size: 12px;
+      margin-left: 10px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
 
-  #sidebar-cwd {
-    padding: 10px 12px; word-break: break-all; color: #8bc34a;
-    border-bottom: 1px solid #3c3c3c; min-height: 40px; flex-shrink: 0;
-    font-size: 12px;
-  }
-  #sidebar-cwd .label { color: #888; font-size: 10px; text-transform: uppercase; }
+    #toggle-sidebar {
+      background: none;
+      border: 1px solid #555;
+      color: #ccc;
+      cursor: pointer;
+      font-size: 16px;
+      padding: 2px 8px;
+      border-radius: 3px;
+      line-height: 1;
+      flex-shrink: 0;
+    }
 
-  #sidebar-files { padding: 0 12px 10px 12px; flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
-  #file-filter {
-    width: 100%; padding: 4px 8px; margin: 8px 0; background: #1e1e1e; border: 1px solid #555;
-    color: #ccc; font-size: 12px; font-family: monospace; border-radius: 3px; outline: none;
-    flex-shrink: 0;
-  }
-  #file-filter:focus { border-color: #8bc34a; }
-  #file-items { flex: 1; overflow-y: auto; }
-  #sidebar-files .empty-hint {
-    color: #555; text-align: center; padding: 20px 0; font-size: 12px;
-    font-style: italic;
-  }
-  #sidebar-files .file-item {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 4px 0; border-bottom: 1px solid #333; font-size: 12px; gap: 6px;
-  }
-  #sidebar-files .file-item .name {
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1;
-  }
-  #sidebar-files .file-item .name.is-dir { color: #64b5f6; }
-  #sidebar-files .file-item .size {
-    color: #888; font-size: 10px; flex-shrink: 0;
-  }
-  #sidebar-files .file-item .btn-dl {
-    background: #3c3c3c; border: 1px solid #555; color: #8bc34a; cursor: pointer;
-    font-size: 10px; padding: 2px 8px; border-radius: 3px; flex-shrink: 0;
-  }
-  #sidebar-files .file-item .btn-dl:hover { background: #555; }
+    #toggle-sidebar:hover {
+      background: #444;
+    }
 
-  #sidebar-uploads {
-    padding: 10px 12px; overflow-y: auto; max-height: 50%; border-top: 1px solid #3c3c3c;
-  }
-  #sidebar-uploads .empty-hint {
-    color: #555; text-align: center; padding: 20px 0; font-size: 12px;
-    font-style: italic;
-  }
-  #sidebar-uploads .item {
-    padding: 6px 0; border-bottom: 1px solid #333; font-size: 12px;
-  }
-  #sidebar-uploads .item .name {
-    display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    margin-bottom: 4px;
-  }
-  #sidebar-uploads .item .bar {
-    height: 5px; background: #444; border-radius: 3px;
-  }
-  #sidebar-uploads .item .bar-fill {
-    height: 100%; background: #4caf50; border-radius: 3px; transition: width 0.3s;
-    width: 0%;
-  }
-  #sidebar-uploads .item.done .bar-fill { background: #8bc34a; }
-  #sidebar-uploads .item.error .bar-fill { background: #d32f2f; }
-  #sidebar-uploads .item.paused .bar-fill { background: #ff9800; }
-  #sidebar-uploads .item .status-text {
-    font-size: 10px; color: #888; margin-top: 2px;
-  }
-  #sidebar-uploads .item .actions {
-    display: flex; gap: 6px; margin-top: 4px;
-  }
-  #sidebar-uploads .item .actions button {
-    background: #3c3c3c; border: none; color: #ccc; cursor: pointer;
-    font-size: 10px; padding: 2px 8px; border-radius: 3px;
-  }
-  #sidebar-uploads .item .actions button:hover { background: #555; }
-  #sidebar-uploads .item.done .actions,
-  #sidebar-uploads .item.cancelled .actions { display: none; }
+    #terminal-container {
+      flex: 1;
+      overflow: hidden;
+    }
 
-  /* --- drop zone --- */
-  #drop-zone {
-    margin: 8px 12px 12px 12px; padding: 18px 12px; border: 2px dashed #555;
-    border-radius: 6px; text-align: center; color: #888; font-size: 12px;
-    flex-shrink: 0; cursor: pointer; transition: border-color 0.2s, color 0.2s;
-  }
-  #drop-zone .drop-icon { font-size: 24px; display: block; margin-bottom: 4px; opacity: 0.5; }
-  #drop-zone .drop-hint { display: block; }
-  #drop-zone:hover, #drop-zone.drag-over { border-color: #8bc34a; color: #8bc34a; }
-  #drop-zone:hover .drop-icon, #drop-zone.drag-over .drop-icon { opacity: 0.8; }
+    #terminal {
+      height: 100%;
+    }
 
-  #status {
-    position: fixed; top: 0; left: 0; right: 0;
-    background: #d32f2f; color: #fff; padding: 8px 16px;
-    font-family: monospace; font-size: 14px; display: none; z-index: 100;
-  }
-</style>
+    /* --- side panel (right) --- */
+    #sidebar {
+      width: 240px;
+      min-width: 240px;
+      background: #252526;
+      border-left: 1px solid #3c3c3c;
+      color: #ccc;
+      display: flex;
+      flex-direction: column;
+      font-family: monospace;
+      font-size: 13px;
+      overflow: hidden;
+      transition: width 0.2s, min-width 0.2s;
+    }
+
+    #sidebar.collapsed {
+      width: 0;
+      min-width: 0;
+      border-left: none;
+    }
+
+    #sidebar-header {
+      padding: 10px 12px;
+      font-weight: bold;
+      color: #e0e0e0;
+      border-bottom: 1px solid #3c3c3c;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-shrink: 0;
+    }
+
+    #sidebar-cwd {
+      padding: 10px 12px;
+      word-break: break-all;
+      color: #8bc34a;
+      border-bottom: 1px solid #3c3c3c;
+      min-height: 40px;
+      flex-shrink: 0;
+      font-size: 12px;
+    }
+
+    #sidebar-cwd .label {
+      color: #888;
+      font-size: 10px;
+      text-transform: uppercase;
+    }
+
+    #sidebar-files {
+      padding: 0 12px 10px 12px;
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+    }
+
+    #file-filter {
+      width: 100%;
+      padding: 4px 8px;
+      margin: 8px 0;
+      background: #1e1e1e;
+      border: 1px solid #555;
+      color: #ccc;
+      font-size: 12px;
+      font-family: monospace;
+      border-radius: 3px;
+      outline: none;
+      flex-shrink: 0;
+    }
+
+    #file-filter:focus {
+      border-color: #8bc34a;
+    }
+
+    #file-items {
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    #sidebar-files .empty-hint {
+      color: #555;
+      text-align: center;
+      padding: 20px 0;
+      font-size: 12px;
+      font-style: italic;
+    }
+
+    #sidebar-files .file-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 4px 0;
+      border-bottom: 1px solid #333;
+      font-size: 12px;
+      gap: 6px;
+    }
+
+    #sidebar-files .file-item .name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex: 1;
+    }
+
+    #sidebar-files .file-item .name.is-dir {
+      color: #64b5f6;
+    }
+
+    #sidebar-files .file-item .size {
+      color: #888;
+      font-size: 10px;
+      flex-shrink: 0;
+    }
+
+    #sidebar-files .file-item .btn-dl {
+      background: #3c3c3c;
+      border: 1px solid #555;
+      color: #8bc34a;
+      cursor: pointer;
+      font-size: 10px;
+      padding: 2px 8px;
+      border-radius: 3px;
+      flex-shrink: 0;
+    }
+
+    #sidebar-files .file-item .btn-dl:hover {
+      background: #555;
+    }
+
+    #sidebar-uploads {
+      padding: 10px 12px;
+      overflow-y: auto;
+      max-height: 50%;
+      border-top: 1px solid #3c3c3c;
+    }
+
+    #sidebar-uploads .empty-hint {
+      color: #555;
+      text-align: center;
+      padding: 20px 0;
+      font-size: 12px;
+      font-style: italic;
+    }
+
+    #sidebar-uploads .item {
+      padding: 6px 0;
+      border-bottom: 1px solid #333;
+      font-size: 12px;
+    }
+
+    #sidebar-uploads .item .name {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      margin-bottom: 4px;
+    }
+
+    #sidebar-uploads .item .bar {
+      height: 5px;
+      background: #444;
+      border-radius: 3px;
+    }
+
+    #sidebar-uploads .item .bar-fill {
+      height: 100%;
+      background: #4caf50;
+      border-radius: 3px;
+      transition: width 0.3s;
+      width: 0%;
+    }
+
+    #sidebar-uploads .item.done .bar-fill {
+      background: #8bc34a;
+    }
+
+    #sidebar-uploads .item.error .bar-fill {
+      background: #d32f2f;
+    }
+
+    #sidebar-uploads .item.paused .bar-fill {
+      background: #ff9800;
+    }
+
+    #sidebar-uploads .item .status-text {
+      font-size: 10px;
+      color: #888;
+      margin-top: 2px;
+    }
+
+    #sidebar-uploads .item .actions {
+      display: flex;
+      gap: 6px;
+      margin-top: 4px;
+    }
+
+    #sidebar-uploads .item .actions button {
+      background: #3c3c3c;
+      border: none;
+      color: #ccc;
+      cursor: pointer;
+      font-size: 10px;
+      padding: 2px 8px;
+      border-radius: 3px;
+    }
+
+    #sidebar-uploads .item .actions button:hover {
+      background: #555;
+    }
+
+    #sidebar-uploads .item.done .actions,
+    #sidebar-uploads .item.cancelled .actions {
+      display: none;
+    }
+
+    /* --- drop zone --- */
+    #drop-zone {
+      margin: 8px 12px 12px 12px;
+      padding: 18px 12px;
+      border: 2px dashed #555;
+      border-radius: 6px;
+      text-align: center;
+      color: #888;
+      font-size: 12px;
+      flex-shrink: 0;
+      cursor: pointer;
+      transition: border-color 0.2s, color 0.2s;
+    }
+
+    #drop-zone .drop-icon {
+      font-size: 24px;
+      display: block;
+      margin-bottom: 4px;
+      opacity: 0.5;
+    }
+
+    #drop-zone .drop-hint {
+      display: block;
+    }
+
+    #drop-zone:hover,
+    #drop-zone.drag-over {
+      border-color: #8bc34a;
+      color: #8bc34a;
+    }
+
+    #drop-zone:hover .drop-icon,
+    #drop-zone.drag-over .drop-icon {
+      opacity: 0.8;
+    }
+
+    #status {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      background: #d32f2f;
+      color: #fff;
+      padding: 8px 16px;
+      font-family: monospace;
+      font-size: 14px;
+      display: none;
+      z-index: 100;
+    }
+  </style>
 </head>
+
 <body>
-<div id="status"></div>
-<div id="app">
-  <div id="main">
-    <div id="toolbar">
-      <div id="toolbar-left">
-        <span id="cwd-inline"></span>
+  <div id="status"></div>
+  <div id="app">
+    <div id="main">
+      <div id="toolbar">
+        <div id="toolbar-left">
+          <span id="cwd-inline"></span>
+        </div>
+        <button id="toggle-sidebar" title="Toggle file panel">☰</button>
       </div>
-      <button id="toggle-sidebar" title="Toggle file panel">☰</button>
-    </div>
-    <div id="terminal-container"><div id="terminal"></div></div>
-  </div>
-  <div id="sidebar" class="collapsed">
-    <div id="sidebar-header">
-      <span>Files</span>
-    </div>
-    <div id="sidebar-cwd">
-      <div class="label">CWD</div>
-      <div id="cwd-path">-</div>
-    </div>
-    <div id="sidebar-files">
-      <input id="file-filter" type="text" placeholder="Filter...">
-      <div id="file-items">
-        <div class="empty-hint">Click "List Files" to browse</div>
+      <div id="terminal-container">
+        <div id="terminal"></div>
       </div>
     </div>
-    <div id="sidebar-uploads">
-      <div class="empty-hint">No uploads</div>
-    </div>
-    <div id="drop-zone">
-      <span class="drop-icon">&#8628;</span>
-      <span class="drop-hint">Drop files here to upload<br>to current directory</span>
+    <div id="sidebar" class="collapsed">
+      <div id="sidebar-header">
+        <span>Files</span>
+      </div>
+      <div id="sidebar-cwd">
+        <div class="label">CWD</div>
+        <div id="cwd-path">-</div>
+      </div>
+      <div id="sidebar-files">
+        <input id="file-filter" type="text" placeholder="Filter...">
+        <div id="file-items">
+          <div class="empty-hint">Click "List Files" to browse</div>
+        </div>
+      </div>
+      <div id="sidebar-uploads">
+        <div class="empty-hint">No uploads</div>
+      </div>
+      <div id="drop-zone">
+        <span class="drop-icon">&#8628;</span>
+        <span class="drop-hint">Drop files here to upload<br>to current directory</span>
+      </div>
     </div>
   </div>
-</div>
-<script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
-<script>
-(function() {
-  var CHUNK_SIZE = 1 << 20; // 1 MiB
+  <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+  <script>
+    (function () {
+      var CHUNK_SIZE = 1 << 20; // 1 MiB
 
-  // --- DOM refs ---
-  var status = document.getElementById('status');
-  var sidebar = document.getElementById('sidebar');
-  var toggleBtn = document.getElementById('toggle-sidebar');
-  var cwdPath = document.getElementById('cwd-path');
-  var cwdInline = document.getElementById('cwd-inline');
-  var uploadsList = document.getElementById('sidebar-uploads');
-  var dropZone = document.getElementById('drop-zone');
-  var emptyHint = uploadsList.querySelector('.empty-hint');
+      // --- DOM refs ---
+      var status = document.getElementById('status');
+      var sidebar = document.getElementById('sidebar');
+      var toggleBtn = document.getElementById('toggle-sidebar');
+      var cwdPath = document.getElementById('cwd-path');
+      var cwdInline = document.getElementById('cwd-inline');
+      var uploadsList = document.getElementById('sidebar-uploads');
+      var dropZone = document.getElementById('drop-zone');
+      var emptyHint = uploadsList.querySelector('.empty-hint');
 
-  function showError(msg) {
-    status.textContent = msg;
-    status.style.display = 'block';
-    setTimeout(function() { status.style.display = 'none'; }, 5000);
-  }
-
-  // --- sidebar toggle ---
-  var sidebarVisible = false;
-  toggleBtn.addEventListener('click', function() {
-    sidebarVisible = !sidebarVisible;
-    if (sidebarVisible) {
-      sidebar.classList.remove('collapsed');
-      refreshFileList();
-    } else {
-      sidebar.classList.add('collapsed');
-    }
-    setTimeout(function() { fitAddon.fit(); }, 250);
-  });
-
-  // --- xterm ---
-  var term = new Terminal({
-    cursorBlink: true,
-    fontSize: 14,
-    fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-    theme: {
-      background: '#1e1e1e',
-      foreground: '#d4d4d4',
-      cursor: '#d4d4d4',
-      selectionBackground: '#264f78'
-    }
-  });
-
-  var fitAddon = new FitAddon.FitAddon();
-  term.loadAddon(fitAddon);
-  term.open(document.getElementById('terminal'));
-  fitAddon.fit();
-
-  window.addEventListener('resize', function() { fitAddon.fit(); });
-
-  // --- state ---
-  var ws = null;
-  var termDataDisposable = null;
-  var termResizeDisposable = null;
-  var uploadToken = '';
-  var uploadPrefix = '';
-  var uploads = {};        // id -> { el, filename, received, total, file, xhr, offset, paused }
-  var pendingUploads = {};  // filename -> File object (waiting for upload-init ack)
-
-  function setCWD(path) {
-    cwdPath.textContent = path;
-    cwdInline.textContent = path;
-    cwdInline.title = path;
-  }
-
-  var lastListedCWD = '';
-
-  function refreshFileList() {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      var cwd = cwdPath.textContent;
-      if (cwd !== '-' && cwd !== lastListedCWD) {
-        lastListedCWD = cwd;
-        ws.send(JSON.stringify({ type: 'list-files' }));
+      function showError(msg) {
+        status.textContent = msg;
+        status.style.display = 'block';
+        setTimeout(function () { status.style.display = 'none'; }, 5000);
       }
-    }
-  }
 
+      // --- sidebar toggle ---
+      var sidebarVisible = false;
+      toggleBtn.addEventListener('click', function () {
+        sidebarVisible = !sidebarVisible;
+        if (sidebarVisible) {
+          sidebar.classList.remove('collapsed');
+          refreshFileList();
+        } else {
+          sidebar.classList.add('collapsed');
+        }
+        setTimeout(function () { fitAddon.fit(); }, 250);
+      });
 
-  // --- file list ---
-  var filesList = document.getElementById('sidebar-files');
-  var fileItems = document.getElementById('file-items');
-  var fileFilter = document.getElementById('file-filter');
-  var lastFiles = [];
+      // --- xterm ---
+      var term = new Terminal({
+        cursorBlink: true,
+        fontSize: 14,
+        fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+        theme: {
+          background: '#1e1e1e',
+          foreground: '#d4d4d4',
+          cursor: '#d4d4d4',
+          selectionBackground: '#264f78'
+        }
+      });
 
-  fileFilter.addEventListener('input', function() {
-    renderFiltered();
-  });
+      var fitAddon = new FitAddon.FitAddon();
+      term.loadAddon(fitAddon);
+      term.open(document.getElementById('terminal'));
+      fitAddon.fit();
 
-  function renderFiltered() {
-    var query = fileFilter.value.toLowerCase();
-    var filtered = lastFiles;
-    if (query) {
-      filtered = lastFiles.filter(function(f) { return f.name.toLowerCase().indexOf(query) !== -1; });
-    }
-    fileItems.innerHTML = '';
-    if (filtered.length === 0) {
-      fileItems.innerHTML = '<div class="empty-hint">' + (query ? 'No matches' : 'Directory is empty') + '</div>';
-      return;
-    }
-    filtered.forEach(function(f) {
-      var item = document.createElement('div');
-      item.className = 'file-item';
-
-      var name = document.createElement('span');
-      name.className = 'name' + (f.isDir ? ' is-dir' : '');
-      name.textContent = f.name + (f.isDir ? '/' : '');
-      name.title = f.name;
-      item.appendChild(name);
-
-      if (!f.isDir) {
-        var size = document.createElement('span');
-        size.className = 'size';
-        size.textContent = formatSize(f.size);
-        item.appendChild(size);
-
-        var dlBtn = document.createElement('button');
-        dlBtn.className = 'btn-dl';
-        dlBtn.textContent = '↓';
-        dlBtn.title = 'Download ' + f.name;
-        dlBtn.addEventListener('click', function() {
-          if (!ws || ws.readyState !== WebSocket.OPEN) {
-            showError('Not connected');
-            return;
+      // Windows-terminal-style copy/paste shortcuts.
+      // Capture-phase DOM listener runs before xterm.js internals.
+      document.getElementById('terminal').addEventListener('keydown', function (e) {
+        if (!e.ctrlKey || e.altKey || e.metaKey) return;
+        // Ctrl+C: copy selection, or send SIGINT if nothing selected.
+        if (e.key === 'c' || e.key === 'C') {
+          var sel = term.getSelection();
+          if (sel) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            navigator.clipboard.writeText(sel).catch(function () { });
+            term.clearSelection();
           }
-          ws.send(JSON.stringify({ type: 'download', path: f.name }));
-        });
-        item.appendChild(dlBtn);
+        }
+        // Ctrl+V: paste from clipboard.
+        if (e.key === 'v' || e.key === 'V') {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          navigator.clipboard.readText().then(function (text) {
+            if (text) term.paste(text);
+          }).catch(function () { });
+        }
+      }, true);
+
+      window.addEventListener('resize', function () { fitAddon.fit(); });
+
+      // --- state ---
+      var ws = null;
+      var termDataDisposable = null;
+      var termResizeDisposable = null;
+      var uploadToken = '';
+      var uploadPrefix = '';
+      var uploads = {};        // id -> { el, filename, received, total, file, xhr, offset, paused }
+      var pendingUploads = {};  // filename -> File object (waiting for upload-init ack)
+      var basePath = location.pathname.replace(/\/[^/]*$/, '');
+      var pendingCwdRestore = '';
+
+      function setCWD(path) {
+        cwdPath.textContent = path;
+        cwdInline.textContent = path;
+        cwdInline.title = path;
       }
 
-      fileItems.appendChild(item);
-    });
-  }
+      var lastListedCWD = '';
 
-  function renderFileList(dir, files) {
-    lastListedCWD = dir;
-    lastFiles = files;
-    renderFiltered();
-  }
+      function refreshFileList() {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          var cwd = cwdPath.textContent;
+          if (cwd !== '-' && cwd !== lastListedCWD) {
+            lastListedCWD = cwd;
+            ws.send(JSON.stringify({ type: 'list-files' }));
+          }
+        }
+      }
 
-  function triggerDownload(url) {
-    // iframe avoids page navigation — the download runs in a separate
-    // browsing context so the main page's WebSocket stays alive.
-    var iframe = document.createElement('iframe');
-    iframe.style.display = 'none';
-    iframe.src = url;
-    document.body.appendChild(iframe);
-    setTimeout(function() { document.body.removeChild(iframe); }, 5000);
-  }
 
-  // --- upload progress UI ---
-  function hideEmptyHint() {
-    if (emptyHint) { emptyHint.style.display = 'none'; }
-  }
+      // --- file list ---
+      var filesList = document.getElementById('sidebar-files');
+      var fileItems = document.getElementById('file-items');
+      var fileFilter = document.getElementById('file-filter');
+      var lastFiles = [];
 
-  function showEmptyHint() {
-    var hasItems = uploadsList.querySelector('.item');
-    if (emptyHint) { emptyHint.style.display = hasItems ? 'none' : ''; }
-  }
-
-  function getUploadEl(id) {
-    if (!uploads[id]) {
-      var el = document.createElement('div');
-      el.className = 'item';
-      el.innerHTML = '<span class="name"></span>' +
-        '<div class="bar"><div class="bar-fill"></div></div>' +
-        '<span class="status-text"></span>' +
-        '<div class="actions">' +
-          '<button class="btn-pause">⏸ Pause</button>' +
-          '<button class="btn-cancel">✕ Cancel</button>' +
-        '</div>';
-      uploadsList.appendChild(el);
-
-      uploads[id] = { el: el, offset: 0, paused: false };
-
-      el.querySelector('.btn-pause').addEventListener('click', function() {
-        togglePause(id);
-      });
-      el.querySelector('.btn-cancel').addEventListener('click', function() {
-        cancelUpload(id);
+      fileFilter.addEventListener('input', function () {
+        renderFiltered();
       });
 
-      hideEmptyHint();
-    }
-    return uploads[id];
-  }
+      function renderFiltered() {
+        var query = fileFilter.value.toLowerCase();
+        var filtered = lastFiles;
+        if (query) {
+          filtered = lastFiles.filter(function (f) { return f.name.toLowerCase().indexOf(query) !== -1; });
+        }
+        fileItems.innerHTML = '';
+        if (filtered.length === 0) {
+          fileItems.innerHTML = '<div class="empty-hint">' + (query ? 'No matches' : 'Directory is empty') + '</div>';
+          return;
+        }
+        filtered.forEach(function (f) {
+          var item = document.createElement('div');
+          item.className = 'file-item';
 
-  function updateUpload(id, filename, received, total, done, error) {
-    var u = getUploadEl(id);
-    u.filename = filename;
-    u.received = received;
-    u.total = total;
-    var pct = total > 0 ? Math.round(received / total * 100) : 0;
-    u.el.querySelector('.name').textContent = filename;
-    u.el.querySelector('.bar-fill').style.width = pct + '%';
+          var name = document.createElement('span');
+          name.className = 'name' + (f.isDir ? ' is-dir' : '');
+          name.textContent = f.name + (f.isDir ? '/' : '');
+          name.title = f.name;
+          item.appendChild(name);
 
-    var statusEl = u.el.querySelector('.status-text');
-    var pauseBtn = u.el.querySelector('.btn-pause');
+          if (!f.isDir) {
+            var size = document.createElement('span');
+            size.className = 'size';
+            size.textContent = formatSize(f.size);
+            item.appendChild(size);
 
-    if (done) {
-      u.el.classList.add('done');
-      u.el.classList.remove('error', 'paused');
-      statusEl.textContent = 'Done';
-      setTimeout(function() {
+            var dlBtn = document.createElement('button');
+            dlBtn.className = 'btn-dl';
+            dlBtn.textContent = '↓';
+            dlBtn.title = 'Download ' + f.name;
+            dlBtn.addEventListener('click', function () {
+              if (!ws || ws.readyState !== WebSocket.OPEN) {
+                showError('Not connected');
+                return;
+              }
+              ws.send(JSON.stringify({ type: 'download', path: f.name }));
+            });
+            item.appendChild(dlBtn);
+          }
+
+          fileItems.appendChild(item);
+        });
+      }
+
+      function renderFileList(dir, files) {
+        lastListedCWD = dir;
+        lastFiles = files;
+        renderFiltered();
+      }
+
+      function triggerDownload(url) {
+        // iframe avoids page navigation — the download runs in a separate
+        // browsing context so the main page's WebSocket stays alive.
+        var iframe = document.createElement('iframe');
+        iframe.style.display = 'none';
+        iframe.src = url;
+        document.body.appendChild(iframe);
+        setTimeout(function () { document.body.removeChild(iframe); }, 5000);
+      }
+
+      // --- upload progress UI ---
+      function hideEmptyHint() {
+        if (emptyHint) { emptyHint.style.display = 'none'; }
+      }
+
+      function showEmptyHint() {
+        var hasItems = uploadsList.querySelector('.item');
+        if (emptyHint) { emptyHint.style.display = hasItems ? 'none' : ''; }
+      }
+
+      function getUploadEl(id) {
+        if (!uploads[id]) {
+          var el = document.createElement('div');
+          el.className = 'item';
+          el.innerHTML = '<span class="name"></span>' +
+            '<div class="bar"><div class="bar-fill"></div></div>' +
+            '<span class="status-text"></span>' +
+            '<div class="actions">' +
+            '<button class="btn-pause">⏸ Pause</button>' +
+            '<button class="btn-cancel">✕ Cancel</button>' +
+            '</div>';
+          uploadsList.appendChild(el);
+
+          uploads[id] = { el: el, offset: 0, paused: false };
+
+          el.querySelector('.btn-pause').addEventListener('click', function () {
+            togglePause(id);
+          });
+          el.querySelector('.btn-cancel').addEventListener('click', function () {
+            cancelUpload(id);
+          });
+
+          hideEmptyHint();
+        }
+        return uploads[id];
+      }
+
+      function updateUpload(id, filename, received, total, done, error) {
+        var u = getUploadEl(id);
+        u.filename = filename;
+        u.received = received;
+        u.total = total;
+        var pct = total > 0 ? Math.round(received / total * 100) : 0;
+        u.el.querySelector('.name').textContent = filename;
+        u.el.querySelector('.bar-fill').style.width = pct + '%';
+
+        var statusEl = u.el.querySelector('.status-text');
+        var pauseBtn = u.el.querySelector('.btn-pause');
+
+        if (done) {
+          u.el.classList.add('done');
+          u.el.classList.remove('error', 'paused');
+          statusEl.textContent = 'Done';
+          setTimeout(function () {
+            if (u.el && u.el.parentNode) u.el.parentNode.removeChild(u.el);
+            delete uploads[id];
+            showEmptyHint();
+          }, 3000);
+        } else if (error) {
+          u.el.classList.add('error');
+          u.el.classList.remove('done', 'paused');
+          statusEl.textContent = 'Failed — will retry';
+          if (pauseBtn) pauseBtn.textContent = '▶ Resume';
+        } else if (u.paused) {
+          u.el.classList.add('paused');
+          u.el.classList.remove('done', 'error');
+          statusEl.textContent = 'Paused — ' + formatSize(received) + ' / ' + formatSize(total);
+          if (pauseBtn) pauseBtn.textContent = '▶ Resume';
+        } else {
+          u.el.classList.remove('done', 'error', 'paused');
+          statusEl.textContent = formatSize(received) + ' / ' + formatSize(total);
+          if (pauseBtn) pauseBtn.textContent = '⏸ Pause';
+        }
+      }
+
+      function togglePause(id) {
+        var u = uploads[id];
+        if (!u || !u.file) return;
+        u.paused = !u.paused;
+        if (u.paused) {
+          // Abort current XHR if any.
+          if (u.xhr) { u.xhr.abort(); u.xhr = null; }
+          updateUpload(id, u.filename, u.received, u.total);
+        } else {
+          // Resume.
+          updateUpload(id, u.filename, u.received, u.total);
+          sendChunk(id);
+        }
+      }
+
+      function cancelUpload(id) {
+        var u = uploads[id];
+        if (!u) return;
+        if (u.xhr) { u.xhr.abort(); u.xhr = null; }
+        ws.send(JSON.stringify({ type: 'upload-cancel', id: id }));
+        try { localStorage.removeItem('ax-upload-' + id); } catch (e) { }
         if (u.el && u.el.parentNode) u.el.parentNode.removeChild(u.el);
         delete uploads[id];
         showEmptyHint();
-      }, 3000);
-    } else if (error) {
-      u.el.classList.add('error');
-      u.el.classList.remove('done', 'paused');
-      statusEl.textContent = 'Failed — will retry';
-      if (pauseBtn) pauseBtn.textContent = '▶ Resume';
-    } else if (u.paused) {
-      u.el.classList.add('paused');
-      u.el.classList.remove('done', 'error');
-      statusEl.textContent = 'Paused — ' + formatSize(received) + ' / ' + formatSize(total);
-      if (pauseBtn) pauseBtn.textContent = '▶ Resume';
-    } else {
-      u.el.classList.remove('done', 'error', 'paused');
-      statusEl.textContent = formatSize(received) + ' / ' + formatSize(total);
-      if (pauseBtn) pauseBtn.textContent = '⏸ Pause';
-    }
-  }
-
-  function togglePause(id) {
-    var u = uploads[id];
-    if (!u || !u.file) return;
-    u.paused = !u.paused;
-    if (u.paused) {
-      // Abort current XHR if any.
-      if (u.xhr) { u.xhr.abort(); u.xhr = null; }
-      updateUpload(id, u.filename, u.received, u.total);
-    } else {
-      // Resume.
-      updateUpload(id, u.filename, u.received, u.total);
-      sendChunk(id);
-    }
-  }
-
-  function cancelUpload(id) {
-    var u = uploads[id];
-    if (!u) return;
-    if (u.xhr) { u.xhr.abort(); u.xhr = null; }
-    ws.send(JSON.stringify({ type: 'upload-cancel', id: id }));
-    try { localStorage.removeItem('ax-upload-' + id); } catch(e) {}
-    if (u.el && u.el.parentNode) u.el.parentNode.removeChild(u.el);
-    delete uploads[id];
-    showEmptyHint();
-  }
-
-  function formatSize(bytes) {
-    if (bytes < 1024) return bytes + ' B';
-    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
-    return (bytes / 1048576).toFixed(1) + ' MB';
-  }
-
-  // --- chunk upload engine ---
-  function sendChunk(id) {
-    var u = uploads[id];
-    if (!u || u.paused) return;
-    if (u.offset >= u.total) {
-      ws.send(JSON.stringify({ type: 'upload-commit', id: id }));
-      return;
-    }
-
-    var end = Math.min(u.offset + CHUNK_SIZE, u.total);
-    var blob = u.file.slice(u.offset, end);
-
-    var xhr = new XMLHttpRequest();
-    u.xhr = xhr;
-    var url = uploadPrefix + id + '?token=' + encodeURIComponent(uploadToken) + '&offset=' + u.offset;
-    xhr.open('POST', url);
-    xhr.onload = function() {
-      if (!uploads[id]) return; // cancelled
-      if (xhr.status >= 200 && xhr.status < 300) {
-        var resp = JSON.parse(xhr.responseText);
-        u.offset += resp.bytes_written;
-        u.xhr = null;
-        updateUpload(id, u.filename, resp.received, resp.total);
-        sendChunk(id);
-      } else {
-        u.paused = true;
-        u.xhr = null;
-        updateUpload(id, u.filename, u.offset, u.total, false, true);
-        showError('Upload chunk failed: ' + xhr.status);
       }
-    };
-    xhr.onerror = function() {
-      if (!uploads[id]) return;
-      u.paused = true;
-      u.xhr = null;
-      updateUpload(id, u.filename, u.offset, u.total, false, true);
-      showError('Upload interrupted — will resume on reconnect');
-      try {
-        localStorage.setItem('ax-upload-' + id, JSON.stringify({
-          filename: u.filename, size: u.total, offset: u.offset
-        }));
-      } catch(e) {}
-    };
-    xhr.ontimeout = function() {
-      if (!uploads[id]) return;
-      u.paused = true;
-      u.xhr = null;
-    };
-    xhr.timeout = 30000;
-    xhr.send(blob);
-  }
 
-  function startChunkedUpload(id, file) {
-    var u = uploads[id];
-    u.file = file;
-    u.total = file.size;
-    u.offset = 0;
-    u.paused = false;
-    sendChunk(id);
-  }
-
-  function uploadFile(file) {
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-      showError('Not connected');
-      return;
-    }
-    pendingUploads[file.name] = file;
-    ws.send(JSON.stringify({
-      type: 'upload-init',
-      filename: file.name,
-      size: file.size
-    }));
-  }
-
-  function resumeUploads() {
-    var keys = [];
-    for (var i = 0; i < localStorage.length; i++) {
-      var k = localStorage.key(i);
-      if (k && k.indexOf('ax-upload-') === 0) keys.push(k);
-    }
-    keys.forEach(function(k) {
-      try {
-        var id = k.replace('ax-upload-', '');
-        ws.send(JSON.stringify({ type: 'upload-status', id: id }));
-      } catch(e) {}
-    });
-  }
-
-  // --- drag and drop ---
-  dropZone.addEventListener('dragover', function(e) {
-    e.preventDefault();
-    e.stopPropagation();
-    dropZone.classList.add('drag-over');
-  });
-  dropZone.addEventListener('dragleave', function(e) {
-    e.preventDefault();
-    e.stopPropagation();
-    dropZone.classList.remove('drag-over');
-  });
-  dropZone.addEventListener('drop', function(e) {
-    e.preventDefault();
-    e.stopPropagation();
-    dropZone.classList.remove('drag-over');
-    var files = e.dataTransfer.files;
-    for (var i = 0; i < files.length; i++) {
-      uploadFile(files[i]);
-    }
-  });
-  dropZone.addEventListener('click', function() {
-    var input = document.createElement('input');
-    input.type = 'file';
-    input.onchange = function() {
-      for (var i = 0; i < input.files.length; i++) {
-        uploadFile(input.files[i]);
+      function formatSize(bytes) {
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+        return (bytes / 1048576).toFixed(1) + ' MB';
       }
-    };
-    input.click();
-  });
 
-  // --- WebSocket ---
-  function connect() {
-    var basePath = location.pathname.replace(/\/[^/]*$/, '');
-    fetch(basePath + '/api/challenge')
-      .then(function(r) {
-        if (!r.ok) throw new Error('challenge failed: ' + r.status);
-        return r.json();
-      })
-      .then(function(data) {
-        var nonce = data.nonce;
-        var signature = '';
-        var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-        var url = proto + '//' + location.host + basePath + '/ws?nonce=' + encodeURIComponent(nonce) + '&signature=' + encodeURIComponent(signature);
-        ws = new WebSocket(url);
-        ws.binaryType = 'arraybuffer';
-
-        ws.onopen = function() {
-          term.focus();
-          if (termDataDisposable) termDataDisposable.dispose();
-          termDataDisposable = term.onData(function(data) {
-            if (ws && ws.readyState === WebSocket.OPEN) {
-              ws.send(data);
-            }
-          });
-
-          if (termResizeDisposable) termResizeDisposable.dispose();
-          termResizeDisposable = term.onResize(function(_a) {
-            if (ws && ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify({
-                type: 'resize',
-                rows: _a.rows,
-                cols: _a.cols
-              }));
-            }
-          });
-        };
-
-        ws.onmessage = wsMainHandler;
-
-        ws.onclose = function() {
-          term.write('\r\n\x1b[31m[disconnected]\x1b[0m\r\n');
-          setTimeout(connect, 2000);
-        };
-
-        ws.onerror = function() {
-          showError('WebSocket connection failed');
-        };
-      })
-      .catch(function(err) {
-        showError('Connection error: ' + err.message);
-        setTimeout(connect, 3000);
-      });
-  }
-
-  function wsMainHandler(ev) {
-    if (typeof ev.data === 'string') {
-      try {
-        var msg = JSON.parse(ev.data);
-        switch (msg.type) {
-        case 'session':
-          uploadToken = msg.upload_token;
-          uploadPrefix = msg.upload_prefix;
-          resumeUploads();
-          break;
-
-        case 'cwd':
-          setCWD(msg.path);
-          refreshFileList();
-          break;
-
-        case 'upload-init':
-          var f = pendingUploads[msg.filename];
-          var total = f ? f.size : 0;
-          updateUpload(msg.id, msg.filename || '', 0, total);
-          if (f) {
-            delete pendingUploads[msg.filename];
-            startChunkedUpload(msg.id, f);
-          }
-          break;
-
-        case 'upload-error':
-          showError('Upload: ' + msg.message);
-          break;
-
-        case 'upload-done':
-          updateUpload(msg.id, msg.filename, msg.total, msg.total, true);
-          try { localStorage.removeItem('ax-upload-' + msg.id); } catch(e) {}
-          break;
-
-        case 'upload-status':
-          if (msg.exists) {
-            updateUpload(msg.id, msg.filename, msg.received, msg.total);
-          } else {
-            try { localStorage.removeItem('ax-upload-' + msg.id); } catch(e) {}
-          }
-          break;
-
-        case 'file-list':
-          renderFileList(msg.dir, msg.files || []);
-          break;
-
-        case 'file-list-error':
-          fileItems.innerHTML = '<div class="empty-hint" style="color:#d32f2f">' + msg.message + '</div>';
-          break;
-
-        case 'download-ready':
-          triggerDownload(msg.url);
-          break;
-
-        case 'download-error':
-          showError('Download: ' + msg.message);
-          break;
+      // --- chunk upload engine ---
+      function sendChunk(id) {
+        var u = uploads[id];
+        if (!u || u.paused) return;
+        if (u.offset >= u.total) {
+          ws.send(JSON.stringify({ type: 'upload-commit', id: id }));
+          return;
         }
-      } catch(e) {}
-    } else {
-      // Binary = PTY output.
-      term.write(new Uint8Array(ev.data));
-    }
-  }
 
-  connect();
-})();
-</script>
+        var end = Math.min(u.offset + CHUNK_SIZE, u.total);
+        var blob = u.file.slice(u.offset, end);
+
+        var xhr = new XMLHttpRequest();
+        u.xhr = xhr;
+        var url = uploadPrefix + id + '?token=' + encodeURIComponent(uploadToken) + '&offset=' + u.offset;
+        xhr.open('POST', url);
+        xhr.onload = function () {
+          if (!uploads[id]) return; // cancelled
+          if (xhr.status >= 200 && xhr.status < 300) {
+            var resp = JSON.parse(xhr.responseText);
+            u.offset += resp.bytes_written;
+            u.xhr = null;
+            updateUpload(id, u.filename, resp.received, resp.total);
+            sendChunk(id);
+          } else {
+            u.paused = true;
+            u.xhr = null;
+            updateUpload(id, u.filename, u.offset, u.total, false, true);
+            showError('Upload chunk failed: ' + xhr.status);
+          }
+        };
+        xhr.onerror = function () {
+          if (!uploads[id]) return;
+          u.paused = true;
+          u.xhr = null;
+          updateUpload(id, u.filename, u.offset, u.total, false, true);
+          showError('Upload interrupted — will resume on reconnect');
+          try {
+            localStorage.setItem('ax-upload-' + id, JSON.stringify({
+              filename: u.filename, size: u.total, offset: u.offset
+            }));
+          } catch (e) { }
+        };
+        xhr.ontimeout = function () {
+          if (!uploads[id]) return;
+          u.paused = true;
+          u.xhr = null;
+        };
+        xhr.timeout = 30000;
+        xhr.send(blob);
+      }
+
+      function startChunkedUpload(id, file) {
+        var u = uploads[id];
+        u.file = file;
+        u.total = file.size;
+        u.offset = 0;
+        u.paused = false;
+        sendChunk(id);
+      }
+
+      function uploadFile(file) {
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+          showError('Not connected');
+          return;
+        }
+        pendingUploads[file.name] = file;
+        ws.send(JSON.stringify({
+          type: 'upload-init',
+          filename: file.name,
+          size: file.size
+        }));
+      }
+
+      function resumeUploads() {
+        var keys = [];
+        for (var i = 0; i < localStorage.length; i++) {
+          var k = localStorage.key(i);
+          if (k && k.indexOf('ax-upload-') === 0) keys.push(k);
+        }
+        keys.forEach(function (k) {
+          try {
+            var id = k.replace('ax-upload-', '');
+            ws.send(JSON.stringify({ type: 'upload-status', id: id }));
+          } catch (e) { }
+        });
+      }
+
+      // --- drag and drop ---
+      dropZone.addEventListener('dragover', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        dropZone.classList.add('drag-over');
+      });
+      dropZone.addEventListener('dragleave', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        dropZone.classList.remove('drag-over');
+      });
+      dropZone.addEventListener('drop', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        dropZone.classList.remove('drag-over');
+        var files = e.dataTransfer.files;
+        for (var i = 0; i < files.length; i++) {
+          uploadFile(files[i]);
+        }
+      });
+      dropZone.addEventListener('click', function () {
+        var input = document.createElement('input');
+        input.type = 'file';
+        input.onchange = function () {
+          for (var i = 0; i < input.files.length; i++) {
+            uploadFile(input.files[i]);
+          }
+        };
+        input.click();
+      });
+
+      // --- WebSocket ---
+      function connect() {
+        fetch(basePath + '/api/challenge')
+          .then(function (r) {
+            if (!r.ok) throw new Error('challenge failed: ' + r.status);
+            return r.json();
+          })
+          .then(function (data) {
+            var nonce = data.nonce;
+            var signature = '';
+            var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            var url = proto + '//' + location.host + basePath + '/ws?nonce=' + encodeURIComponent(nonce) + '&signature=' + encodeURIComponent(signature);
+            ws = new WebSocket(url);
+            ws.binaryType = 'arraybuffer';
+
+            ws.onopen = function () {
+              term.focus();
+              if (termDataDisposable) termDataDisposable.dispose();
+              termDataDisposable = term.onData(function (data) {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                  ws.send(data);
+                }
+              });
+
+              if (termResizeDisposable) termResizeDisposable.dispose();
+              termResizeDisposable = term.onResize(function (_a) {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                  ws.send(JSON.stringify({
+                    type: 'resize',
+                    rows: _a.rows,
+                    cols: _a.cols
+                  }));
+                }
+              });
+
+              // Remember last CWD so we can restore it if the server
+              // reports a different one (indicating a fresh shell after
+              // server restart, not just a network blip).
+              pendingCwdRestore = cwdPath.textContent;
+            };
+
+            ws.onmessage = wsMainHandler;
+
+            ws.onclose = function () {
+              term.write('\r\n\x1b[31m[disconnected]\x1b[0m\r\n');
+              setTimeout(connect, 2000);
+            };
+
+            ws.onerror = function () {
+              showError('WebSocket connection failed');
+            };
+          })
+          .catch(function (err) {
+            showError('Connection error: ' + err.message);
+            setTimeout(connect, 3000);
+          });
+      }
+
+      function wsMainHandler(ev) {
+        if (typeof ev.data === 'string') {
+          try {
+            var msg = JSON.parse(ev.data);
+            switch (msg.type) {
+              case 'session':
+                uploadToken = msg.upload_token;
+                uploadPrefix = basePath + msg.upload_prefix;
+                resumeUploads();
+                break;
+
+              case 'cwd':
+                setCWD(msg.path);
+                // Restore CWD if the server started a fresh shell (path
+                // differs from what we saw before disconnect). On a
+                // network blip the shell keeps running, so the paths
+                // match and no restore is needed.
+                if (pendingCwdRestore && pendingCwdRestore !== '-' && msg.path !== pendingCwdRestore) {
+                  ws.send(JSON.stringify({ type: 'restore-cwd', path: pendingCwdRestore }));
+                }
+                pendingCwdRestore = '';
+                refreshFileList();
+                break;
+
+              case 'upload-init':
+                var f = pendingUploads[msg.filename];
+                var total = f ? f.size : 0;
+                updateUpload(msg.id, msg.filename || '', 0, total);
+                if (f) {
+                  delete pendingUploads[msg.filename];
+                  startChunkedUpload(msg.id, f);
+                }
+                break;
+
+              case 'upload-error':
+                showError('Upload: ' + msg.message);
+                break;
+
+              case 'upload-done':
+                updateUpload(msg.id, msg.filename, msg.total, msg.total, true);
+                try { localStorage.removeItem('ax-upload-' + msg.id); } catch (e) { }
+                break;
+
+              case 'upload-status':
+                if (msg.exists) {
+                  updateUpload(msg.id, msg.filename, msg.received, msg.total);
+                } else {
+                  try { localStorage.removeItem('ax-upload-' + msg.id); } catch (e) { }
+                }
+                break;
+
+              case 'file-list':
+                renderFileList(msg.dir, msg.files || []);
+                break;
+
+              case 'file-list-error':
+                fileItems.innerHTML = '<div class="empty-hint" style="color:#d32f2f">' + msg.message + '</div>';
+                break;
+
+              case 'download-ready':
+                triggerDownload(basePath + msg.url);
+                break;
+
+              case 'download-error':
+                showError('Download: ' + msg.message);
+                break;
+            }
+          } catch (e) { }
+        } else {
+          // Binary = PTY output.
+          term.write(new Uint8Array(ev.data));
+        }
+      }
+
+      connect();
+    })();
+  </script>
 </body>
+
 </html>
+
 </html>

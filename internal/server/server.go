@@ -450,6 +450,17 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 					_ = sess.Resize(resize.Rows, resize.Cols)
 				}
 
+			case "restore-cwd":
+				var rc struct {
+					Path string `json:"path"`
+				}
+				if json.Unmarshal(msg, &rc) != nil || rc.Path == "" {
+					continue
+				}
+				if info, err := os.Stat(rc.Path); err == nil && info.IsDir() {
+					sess.Write([]byte("cd " + rc.Path + "\n"))
+				}
+
 			case "upload-init":
 				var init struct {
 					Filename string `json:"filename"`

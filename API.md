@@ -227,6 +227,20 @@ Request a one-time download URL for a file relative to the current working direc
 
 Server responds with `download-ready` or `download-error`.
 
+##### restore-cwd
+
+Sent on reconnect when the client detects the server started a fresh shell (CWD reported by the server differs from the last known CWD before disconnect). The server validates the path and injects `cd <path>` into the PTY to restore the working directory.
+
+```json
+{ "type": "restore-cwd", "path": "/home/user/projects" }
+```
+
+| Field  | Description                               |
+| ------ | ----------------------------------------- |
+| `path` | Absolute path to restore as the shell CWD |
+
+This message is safe against network blips — the client only sends it when the server's first `cwd` message proves the shell was restarted. If the same shell is still running (network reconnect), the paths match and no restore is triggered.
+
 ---
 
 #### Server → Client
