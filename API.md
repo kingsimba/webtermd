@@ -36,7 +36,7 @@ Upload a chunk of a file. The upload must have been initiated via WebSocket firs
 
 | Parameter | Description                             |
 | --------- | --------------------------------------- |
-| `token`   | Upload token from the WebSocket session |
+| `utoken`  | Upload token from the WebSocket session |
 | `offset`  | Byte offset to write this chunk at      |
 
 **Request body** — raw binary chunk.
@@ -67,7 +67,7 @@ Query the status of an in-progress upload (used for resuming interrupted uploads
 
 | Parameter | Description                             |
 | --------- | --------------------------------------- |
-| `token`   | Upload token from the WebSocket session |
+| `utoken`  | Upload token from the WebSocket session |
 
 **Response** `200 OK`
 
@@ -398,12 +398,12 @@ Client                          Server
   │ <────────────────────────────  │
   │                                │
   │  HTTP POST /api/upload/abc     │
-  │  ?token=X&offset=0             │
+  │  ?utoken=X&offset=0             │
   │  [chunk 1 binary]              │
   │ ─────────────────────────────> │  writes at offset 0
   │                                │
   │  HTTP POST /api/upload/abc     │
-  │  ?token=X&offset=1048576       │
+  │  ?utoken=X&offset=1048576       │
   │  [chunk 2 binary]              │
   │ ─────────────────────────────> │  writes at offset 1M
   │       ... (repeat) ...         │

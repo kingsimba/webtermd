@@ -116,6 +116,43 @@
       justify-content: space-between;
       align-items: center;
       flex-shrink: 0;
+      gap: 8px;
+    }
+
+    #sidebar-header span {
+      flex: 1;
+    }
+
+    #sidebar-header label {
+      font-weight: normal;
+      font-size: 11px;
+      color: #888;
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    #sidebar-header label input {
+      margin: 0;
+      cursor: pointer;
+    }
+
+    #sidebar-header button {
+      background: none;
+      border: 1px solid #555;
+      color: #888;
+      font-size: 12px;
+      padding: 1px 6px;
+      border-radius: 3px;
+      cursor: pointer;
+      line-height: 1.4;
+    }
+
+    #sidebar-header button:hover {
+      color: #ccc;
+      border-color: #888;
     }
 
     #sidebar-cwd {
@@ -367,9 +404,11 @@
         <div id="terminal"></div>
       </div>
     </div>
-    <div id="sidebar" class="collapsed">
+    <div id="sidebar">
       <div id="sidebar-header">
         <span>Files</span>
+        <label><input type="checkbox" id="hide-hidden"> Hidden</label>
+        <button id="refresh-files" title="Refresh file list">↻</button>
       </div>
       <div id="sidebar-cwd">
         <div class="label">CWD</div>
@@ -413,7 +452,7 @@
       }
 
       // --- sidebar toggle ---
-      var sidebarVisible = false;
+      var sidebarVisible = true;
       toggleBtn.addEventListener('click', function () {
         sidebarVisible = !sidebarVisible;
         if (sidebarVisible) {
@@ -503,17 +542,30 @@
       var filesList = document.getElementById('sidebar-files');
       var fileItems = document.getElementById('file-items');
       var fileFilter = document.getElementById('file-filter');
+      var hideHidden = document.getElementById('hide-hidden');
       var lastFiles = [];
 
       fileFilter.addEventListener('input', function () {
         renderFiltered();
       });
+      hideHidden.addEventListener('change', function () {
+        renderFiltered();
+      });
+      document.getElementById('refresh-files').addEventListener('click', function () {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          lastListedCWD = '';
+          ws.send(JSON.stringify({ type: 'list-files' }));
+        }
+      });
 
       function renderFiltered() {
         var query = fileFilter.value.toLowerCase();
         var filtered = lastFiles;
+        if (!hideHidden.checked) {
+          filtered = filtered.filter(function (f) { return f.name[0] !== '.'; });
+        }
         if (query) {
-          filtered = lastFiles.filter(function (f) { return f.name.toLowerCase().indexOf(query) !== -1; });
+          filtered = filtered.filter(function (f) { return f.name.toLowerCase().indexOf(query) !== -1; });
         }
         fileItems.innerHTML = '';
         if (filtered.length === 0) {
@@ -691,7 +743,7 @@
 
         var xhr = new XMLHttpRequest();
         u.xhr = xhr;
-        var url = uploadPrefix + id + '?token=' + encodeURIComponent(uploadToken) + '&offset=' + u.offset;
+        var url = uploadPrefix + id + '?utoken=' + encodeURIComponent(uploadToken) + '&offset=' + u.offset;
         xhr.open('POST', url);
         xhr.onload = function () {
           if (!uploads[id]) return; // cancelled

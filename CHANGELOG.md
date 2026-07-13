@@ -1,5 +1,9 @@
 # Changelog
 
+- 2026-07-13 ax-term: Auto-refresh file list on directory changes
+- 2026-07-13 ax-term: Add hidden-file toggle and refresh button in sidebar header
+- 2026-07-13 ax-term: Open sidebar by default
+- 2026-07-13 ax-term: Rename upload query param to utoken
 - 2026-07-13 ax-term: Add Windows-terminal Ctrl+C/V copy/paste shortcuts
 - 2026-07-13 ax-term: Restore CWD after server restart
 - 2026-07-13 ax-term: Support reverse-proxy base-path prefix

@@ -2,6 +2,7 @@ package server
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -178,7 +180,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := parts[0]
-	token := r.URL.Query().Get("token")
+	token := r.URL.Query().Get("utoken")
 
 	s.uploadMu.Lock()
 	e, ok := s.uploads[id]
@@ -340,6 +342,52 @@ func (s *Server) wsSendJSON(conn *websocket.Conn, v interface{}) error {
 	return conn.WriteMessage(websocket.TextMessage, data)
 }
 
+// dirHash returns a hex SHA-256 hash of the sorted directory entry names.
+// Returns empty string if the directory cannot be read.
+func dirHash(path string) string {
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return ""
+	}
+	h := sha256.New()
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
+	for _, e := range entries {
+		h.Write([]byte(e.Name()))
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// sendFileList reads a directory and sends a file-list message over the WebSocket.
+func (s *Server) sendFileList(conn *websocket.Conn, cwd string) {
+	entries, err := os.ReadDir(cwd)
+	if err != nil {
+		s.wsSendJSON(conn, map[string]string{"type": "file-list-error", "message": err.Error()})
+		return
+	}
+	type fileInfo struct {
+		Name  string `json:"name"`
+		Size  int64  `json:"size"`
+		IsDir bool   `json:"isDir"`
+	}
+	files := make([]fileInfo, 0, len(entries))
+	for _, e := range entries {
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		files = append(files, fileInfo{
+			Name:  e.Name(),
+			Size:  info.Size(),
+			IsDir: e.IsDir(),
+		})
+	}
+	s.wsSendJSON(conn, map[string]interface{}{
+		"type":  "file-list",
+		"dir":   cwd,
+		"files": files,
+	})
+}
+
 func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	if !s.noAuth {
 		nonce := r.URL.Query().Get("nonce")
@@ -387,28 +435,39 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		sess.Close()
 	}()
 
-	// CWD polling goroutine.
+	// CWD + directory polling goroutine.
 	cwdStop := make(chan struct{})
 	defer close(cwdStop)
 	go func() {
 		ticker := time.NewTicker(500 * time.Millisecond)
 		defer ticker.Stop()
 		lastCWD := ""
+		lastDirHash := ""
 		for {
 			select {
 			case <-cwdStop:
 				return
 			case <-ticker.C:
 				cwd, err := sess.GetCWD()
-				if err != nil || cwd == lastCWD {
+				if err != nil || cwd == "" {
 					continue
 				}
-				lastCWD = cwd
-				if err := s.wsSendJSON(conn, map[string]string{
-					"type": "cwd",
-					"path": cwd,
-				}); err != nil {
-					return
+				// Send cwd when it changes.
+				if cwd != lastCWD {
+					lastCWD = cwd
+					lastDirHash = "" // force file-list on CWD change
+					if err := s.wsSendJSON(conn, map[string]string{
+						"type": "cwd",
+						"path": cwd,
+					}); err != nil {
+						return
+					}
+				}
+				// Auto-refresh file list when directory content changes.
+				dh := dirHash(cwd)
+				if dh != "" && dh != lastDirHash {
+					lastDirHash = dh
+					s.sendFileList(conn, cwd)
 				}
 			}
 		}
@@ -601,33 +660,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 				if cwd == "" {
 					cwd = "/tmp"
 				}
-				entries, err := os.ReadDir(cwd)
-				if err != nil {
-					s.wsSendJSON(conn, map[string]string{"type": "file-list-error", "message": err.Error()})
-					continue
-				}
-				type fileInfo struct {
-					Name  string `json:"name"`
-					Size  int64  `json:"size"`
-					IsDir bool   `json:"isDir"`
-				}
-				files := make([]fileInfo, 0, len(entries))
-				for _, e := range entries {
-					info, err := e.Info()
-					if err != nil {
-						continue
-					}
-					files = append(files, fileInfo{
-						Name:  e.Name(),
-						Size:  info.Size(),
-						IsDir: e.IsDir(),
-					})
-				}
-				s.wsSendJSON(conn, map[string]interface{}{
-					"type":  "file-list",
-					"dir":   cwd,
-					"files": files,
-				})
+				s.sendFileList(conn, cwd)
 
 			case "download":
 				var dl struct {

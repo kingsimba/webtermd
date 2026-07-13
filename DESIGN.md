@@ -36,6 +36,20 @@ The server reads `/proc/<pid>/cwd` every 500ms to detect directory changes. Ther
 
 ---
 
+## File List: Auto-Refresh via Directory Hashing
+
+The file list sidebar needs to stay current as the user creates, deletes, or renames files. Instead of requiring a manual refresh button press, the server detects changes automatically.
+
+**Decision:** The CWD polling goroutine (500ms tick) doubles as a directory change detector. On each tick, it computes a SHA-256 hash of the sorted directory entry names via `os.ReadDir`. When the hash differs from the previous tick, it auto-sends a `file-list` message to the client. On a CWD change, the hash is reset to force an immediate file list push.
+
+**Why hash instead of comparing full listings:** Hashing entry names is O(n) with a tiny constant — SHA-256 on a few hundred filenames is sub-microsecond on modern CPUs. Storing and comparing full file lists would be more work for the same outcome. The hash only needs to detect create/delete/rename — content modifications to existing files don't change the entry names and don't affect the listing.
+
+**Why not fsnotify:** The polling goroutine already exists and costs nothing extra. Adding `fsnotify` brings a dependency, requires managing watcher lifecycles per-connection (start/stop on CWD change, cleanup on disconnect), and offers no practical benefit for a sidebar that polls at 500ms.
+
+**The refresh button stays:** As a manual override for edge cases (e.g., permission changes that don't rename files) and as a discoverable UI affordance.
+
+---
+
 ## CWD Restore After Server Restart
 
 When the server restarts, the PTY dies and a fresh shell spawns at `$HOME`. The client remembers the last CWD and can restore it — but must distinguish a server restart (new shell, wrong CWD) from a brief network blip (same shell, correct CWD).
