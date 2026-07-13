@@ -923,6 +923,14 @@
                 }
               });
 
+              // Send current terminal size immediately so the new PTY
+              // session matches the client viewport on reconnect.
+              ws.send(JSON.stringify({
+                type: 'resize',
+                rows: term.rows,
+                cols: term.cols
+              }));
+
               // Remember last CWD so we can restore it if the server
               // reports a different one (indicating a fresh shell after
               // server restart, not just a network blip).
