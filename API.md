@@ -227,6 +227,16 @@ Request a one-time download URL for a file relative to the current working direc
 
 Server responds with `download-ready` or `download-error`.
 
+##### preview
+
+Request a preview of a text file relative to the current working directory. The server reads the file and returns its content inline. Files larger than 128 KiB are rejected.
+
+```json
+{ "type": "preview", "path": "config.ini" }
+```
+
+Server responds with `preview-content` or `preview-error`.
+
 ##### restore-cwd
 
 Sent on reconnect when the client detects the server started a fresh shell (CWD reported by the server differs from the last known CWD before disconnect). The server validates the path and injects `cd <path>` into the PTY to restore the working directory.
@@ -388,6 +398,31 @@ An error occurred preparing the download.
 
 ```json
 { "type": "download-error", "message": "path escapes working directory" }
+```
+
+##### preview-content
+
+Response to `preview`. Contains the file content.
+
+```json
+{
+  "type": "preview-content",
+  "path": "config.ini",
+  "content": "[server]\nhost=localhost\nport=8080\n"
+}
+```
+
+| Field     | Description                   |
+| --------- | ----------------------------- |
+| `path`    | Requested file path           |
+| `content` | Full file content as a string |
+
+##### preview-error
+
+An error occurred reading the file for preview.
+
+```json
+{ "type": "preview-error", "message": "file too large for preview" }
 ```
 
 ---

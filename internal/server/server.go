@@ -729,6 +729,44 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 					"url":      "/api/download/" + token,
 					"filename": filepath.Base(resolved),
 				})
+
+			case "preview":
+				var pv struct {
+					Path string `json:"path"`
+				}
+				if json.Unmarshal(msg, &pv) != nil || pv.Path == "" {
+					s.wsSendJSON(conn, map[string]string{"type": "preview-error", "message": "missing path"})
+					continue
+				}
+				cwd, _ := sess.GetCWD()
+				if cwd == "" {
+					cwd = "/tmp"
+				}
+				resolved := filepath.Clean(filepath.Join(cwd, pv.Path))
+				if !strings.HasPrefix(resolved, cwd+string(os.PathSeparator)) && resolved != cwd {
+					s.wsSendJSON(conn, map[string]string{"type": "preview-error", "message": "path escapes working directory"})
+					continue
+				}
+				info, err := os.Stat(resolved)
+				if err != nil || info.IsDir() {
+					s.wsSendJSON(conn, map[string]string{"type": "preview-error", "message": "file not found or is a directory"})
+					continue
+				}
+				const maxPreview = 128 << 10 // 128 KiB
+				if info.Size() > maxPreview {
+					s.wsSendJSON(conn, map[string]string{"type": "preview-error", "message": "file too large for preview"})
+					continue
+				}
+				data, err := os.ReadFile(resolved)
+				if err != nil {
+					s.wsSendJSON(conn, map[string]string{"type": "preview-error", "message": "read error: " + err.Error()})
+					continue
+				}
+				s.wsSendJSON(conn, map[string]interface{}{
+					"type":    "preview-content",
+					"path":    pv.Path,
+					"content": string(data),
+				})
 			}
 			continue
 		}

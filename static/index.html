@@ -391,6 +391,87 @@
       display: none;
       z-index: 100;
     }
+
+    /* --- preview modal --- */
+    #preview-modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.75);
+      z-index: 200;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #preview-modal.open {
+      display: flex;
+    }
+
+    #preview-dialog {
+      background: #1e1e1e;
+      border: 1px solid #555;
+      border-radius: 6px;
+      max-width: 80vw;
+      max-height: 80vh;
+      width: 700px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    #preview-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 14px;
+      border-bottom: 1px solid #3c3c3c;
+      flex-shrink: 0;
+    }
+
+    #preview-title {
+      color: #8bc34a;
+      font-family: monospace;
+      font-size: 13px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    #preview-close {
+      background: none;
+      border: 1px solid #555;
+      color: #ccc;
+      cursor: pointer;
+      font-size: 16px;
+      padding: 2px 8px;
+      border-radius: 3px;
+      line-height: 1;
+      flex-shrink: 0;
+      margin-left: 12px;
+    }
+
+    #preview-close:hover {
+      background: #444;
+    }
+
+    #preview-body {
+      flex: 1;
+      overflow: auto;
+      padding: 12px 14px;
+    }
+
+    #preview-body pre {
+      margin: 0;
+      color: #d4d4d4;
+      font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+      font-size: 12px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
   </style>
 </head>
 
@@ -430,6 +511,17 @@
       <div id="drop-zone">
         <span class="drop-icon">&#8628;</span>
         <span class="drop-hint">Drop files here to upload<br>to current directory</span>
+      </div>
+    </div>
+  </div>
+  <div id="preview-modal">
+    <div id="preview-dialog">
+      <div id="preview-header">
+        <span id="preview-title"></span>
+        <button id="preview-close">✕</button>
+      </div>
+      <div id="preview-body">
+        <pre></pre>
       </div>
     </div>
   </div>
@@ -628,6 +720,21 @@
             size.textContent = formatSize(f.size);
             item.appendChild(size);
 
+            if (isPreviewable(f.name)) {
+              var pvBtn = document.createElement('button');
+              pvBtn.className = 'btn-dl';
+              pvBtn.textContent = '👁';
+              pvBtn.title = 'Preview ' + f.name;
+              pvBtn.addEventListener('click', function () {
+                if (!ws || ws.readyState !== WebSocket.OPEN) {
+                  showError('Not connected');
+                  return;
+                }
+                ws.send(JSON.stringify({ type: 'preview', path: f.name }));
+              });
+              item.appendChild(pvBtn);
+            }
+
             var dlBtn = document.createElement('button');
             dlBtn.className = 'btn-dl';
             dlBtn.textContent = '↓';
@@ -767,6 +874,53 @@
         if (bytes < 1024) return bytes + ' B';
         if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
         return (bytes / 1048576).toFixed(1) + ' MB';
+      }
+
+      // --- preview ---
+      var previewExts = {
+        'txt': 1, 'ini': 1, 'cfg': 1, 'conf': 1, 'py': 1, 'js': 1, 'ts': 1, 'jsx': 1, 'tsx': 1,
+        'html': 1, 'css': 1, 'json': 1, 'xml': 1, 'yaml': 1, 'yml': 1, 'toml': 1,
+        'md': 1, 'sh': 1, 'bash': 1, 'zsh': 1, 'fish': 1, 'env': 1, 'log': 1,
+        'go': 1, 'rs': 1, 'c': 1, 'cpp': 1, 'h': 1, 'hpp': 1, 'java': 1, 'rb': 1,
+        'php': 1, 'sql': 1, 'lua': 1, 'vim': 1, 'diff': 1, 'patch': 1,
+        'csv': 1, 'tsv': 1, 'properties': 1, 'cmake': 1, 'gradle': 1,
+        'editorconfig': 1, 'gitignore': 1, 'dockerignore': 1
+      };
+
+      var previewNameSet = {
+        'Makefile': 1, 'Dockerfile': 1, 'LICENSE': 1, 'CHANGELOG': 1,
+        '.bashrc': 1, '.bash_profile': 1, '.profile': 1, '.zshrc': 1,
+        '.gitconfig': 1, '.npmrc': 1, '.tmux.conf': 1
+      };
+
+      function isPreviewable(name) {
+        if (previewNameSet[name]) return true;
+        var dot = name.lastIndexOf('.');
+        if (dot < 0) return false;
+        return !!previewExts[name.slice(dot + 1).toLowerCase()];
+      }
+
+      var previewModal = document.getElementById('preview-modal');
+      var previewTitle = document.getElementById('preview-title');
+      var previewBody = document.getElementById('preview-body').querySelector('pre');
+
+      document.getElementById('preview-close').addEventListener('click', function () {
+        previewModal.classList.remove('open');
+      });
+      previewModal.addEventListener('click', function (e) {
+        if (e.target === previewModal) previewModal.classList.remove('open');
+      });
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && previewModal.classList.contains('open')) {
+          previewModal.classList.remove('open');
+        }
+      });
+
+      function openPreview(name, content) {
+        previewTitle.textContent = name;
+        previewBody.textContent = content || '(empty)';
+        previewBody.className = content ? '' : 'empty';
+        previewModal.classList.add('open');
       }
 
       // --- chunk upload engine ---
@@ -1028,6 +1182,14 @@
 
               case 'download-error':
                 showError('Download: ' + msg.message);
+                break;
+
+              case 'preview-content':
+                openPreview(msg.path, msg.content);
+                break;
+
+              case 'preview-error':
+                showError('Preview: ' + msg.message);
                 break;
             }
           } catch (e) { }
