@@ -6,16 +6,16 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=robot
-ExecStart=/opt/ax-term/ax-term --addr=:8080 --static=/opt/ax-term/static
+WorkingDirectory=/home/robot
+ExecStart=/opt/ax-term/ax-term --addr=:8080
 Restart=always
 RestartSec=5
 
 # Security hardening
-NoNewPrivileges=yes
-PrivateTmp=yes
-ProtectSystem=strict
-ProtectHome=read-only
-ReadWritePaths=/home/robot/.ssh /home/robot/.ax-term-uploads
+# NoNewPrivileges=yes
+# PrivateTmp=yes
+# ProtectSystem=strict
+# ReadWritePaths=/home/robot/.ssh /home/robot/.ax-term-uploads
 
 [Install]
 WantedBy=multi-user.target
