@@ -99,11 +99,11 @@ func (s *Session) ForegroundProc() string {
 		return ""
 	}
 	fields := strings.Fields(line[idx+1:])
-	// fields[0]=state, [1]=ppid, ..., [5]=tty_nr, [6]=tpgid
-	if len(fields) < 7 {
+	// fields[0]=state, [1]=ppid, [2]=pgrp, [3]=session, [4]=tty_nr, [5]=tpgid
+	if len(fields) < 6 {
 		return ""
 	}
-	tpgid, err := strconv.Atoi(fields[6])
+	tpgid, err := strconv.Atoi(fields[5])
 	if err != nil {
 		return ""
 	}
