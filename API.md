@@ -270,6 +270,14 @@ Sent when the shell's working directory changes. Polled every 500ms via `/proc/<
 { "type": "cwd", "path": "/home/user/projects" }
 ```
 
+##### foreground
+
+Sent when the foreground process on the controlling terminal changes. Polled every 500ms alongside `cwd` via `/proc/<pid>/stat`. The `proc` field is the process name from `/proc/<tpgid>/comm` — e.g. `bash`, `vim`, `python3`, `screen`. The client uses this to enable or disable directory-navigation double-click behaviour (only safe to inject `cd` keystrokes when the foreground process is a known shell).
+
+```json
+{ "type": "foreground", "proc": "bash" }
+```
+
 ##### upload-init
 
 Server response to `upload-init`. The client should begin uploading chunks via HTTP.

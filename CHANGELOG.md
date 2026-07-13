@@ -1,5 +1,6 @@
 # Changelog
 
+- 2026-07-13 ax-term: Add parent-directory navigation in file list with foreground-process guard
 - 2026-07-13 ax-term: Fix concurrent websocket write panic
 - 2026-07-13 ax-term: Auto-refresh file list on directory changes
 - 2026-07-13 ax-term: Add hidden-file toggle and refresh button in sidebar header

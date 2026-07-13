@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 
 	"github.com/creack/pty"
 )
@@ -74,6 +76,43 @@ func (s *Session) GetCWD() (string, error) {
 	}
 	link := fmt.Sprintf("/proc/%d/cwd", s.cmd.Process.Pid)
 	return filepath.EvalSymlinks(link)
+}
+
+// ForegroundProc returns the name of the foreground process on the
+// controlling terminal, or "" if it cannot be determined.  Reads
+// /proc/<pid>/stat to find the tpgid (foreground process group), then
+// /proc/<tpgid>/comm for the name.  Returns "bash", "vim", "python3", etc.
+func (s *Session) ForegroundProc() string {
+	if s.cmd.Process == nil {
+		return ""
+	}
+	pid := s.cmd.Process.Pid
+
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	if err != nil {
+		return ""
+	}
+	// Format: <pid> (<comm>) <state> ...; skip comm by finding the last ')'.
+	line := string(data)
+	idx := strings.LastIndexByte(line, ')')
+	if idx < 0 || idx+1 >= len(line) {
+		return ""
+	}
+	fields := strings.Fields(line[idx+1:])
+	// fields[0]=state, [1]=ppid, ..., [5]=tty_nr, [6]=tpgid
+	if len(fields) < 7 {
+		return ""
+	}
+	tpgid, err := strconv.Atoi(fields[6])
+	if err != nil {
+		return ""
+	}
+
+	comm, err := os.ReadFile(fmt.Sprintf("/proc/%d/comm", tpgid))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(comm))
 }
 
 // PID returns the shell process PID.

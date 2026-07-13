@@ -456,6 +456,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		defer ticker.Stop()
 		lastCWD := ""
 		lastDirHash := ""
+		lastFg := ""
 		for {
 			select {
 			case <-cwdStop:
@@ -481,6 +482,17 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 				if dh != "" && dh != lastDirHash {
 					lastDirHash = dh
 					s.sendFileList(conn, cwd)
+				}
+				// Detect foreground process changes (shell vs. vim/python3/etc.).
+				fg := sess.ForegroundProc()
+				if fg != "" && fg != lastFg {
+					lastFg = fg
+					if err := s.wsSendJSON(conn, map[string]string{
+						"type": "foreground",
+						"proc": fg,
+					}); err != nil {
+						return
+					}
 				}
 			}
 		}

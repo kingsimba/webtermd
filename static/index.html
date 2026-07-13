@@ -231,6 +231,10 @@
       color: #64b5f6;
     }
 
+    #sidebar-files .file-item .name.is-dir.clickable {
+      cursor: pointer;
+    }
+
     #sidebar-files .file-item .size {
       color: #888;
       font-size: 10px;
@@ -518,6 +522,7 @@
       var pendingUploads = {};  // filename -> File object (waiting for upload-init ack)
       var basePath = location.pathname.replace(/\/[^/]*$/, '');
       var pendingCwdRestore = '';
+      var isAtShell = true;
 
       function setCWD(path) {
         cwdPath.textContent = path;
@@ -568,8 +573,31 @@
           filtered = filtered.filter(function (f) { return f.name.toLowerCase().indexOf(query) !== -1; });
         }
         fileItems.innerHTML = '';
+
+        // Show .. at top when not at root.
+        var showDotDot = lastListedCWD !== '/' && lastListedCWD !== '-' && lastListedCWD !== '';
+        if (showDotDot) {
+          var dotDot = document.createElement('div');
+          dotDot.className = 'file-item';
+          var ddName = document.createElement('span');
+          ddName.className = 'name is-dir' + (isAtShell ? ' clickable' : '');
+          ddName.textContent = '../';
+          ddName.title = '..';
+          dotDot.appendChild(ddName);
+          if (isAtShell) {
+            dotDot.addEventListener('dblclick', function () {
+              if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send('cd ..\n');
+              }
+            });
+          }
+          fileItems.appendChild(dotDot);
+        }
+
         if (filtered.length === 0) {
-          fileItems.innerHTML = '<div class="empty-hint">' + (query ? 'No matches' : 'Directory is empty') + '</div>';
+          if (!showDotDot) {
+            fileItems.innerHTML = '<div class="empty-hint">' + (query ? 'No matches' : 'Directory is empty') + '</div>';
+          }
           return;
         }
         filtered.forEach(function (f) {
@@ -577,10 +605,22 @@
           item.className = 'file-item';
 
           var name = document.createElement('span');
-          name.className = 'name' + (f.isDir ? ' is-dir' : '');
+          var dirClass = f.isDir ? ' is-dir' : '';
+          if (f.isDir && isAtShell) {
+            dirClass += ' clickable';
+          }
+          name.className = 'name' + dirClass;
           name.textContent = f.name + (f.isDir ? '/' : '');
           name.title = f.name;
           item.appendChild(name);
+
+          if (f.isDir && isAtShell) {
+            item.addEventListener('dblclick', function () {
+              if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send('cd ' + f.name + '\n');
+              }
+            });
+          }
 
           if (!f.isDir) {
             var size = document.createElement('span');
@@ -928,6 +968,15 @@
                 }
                 pendingCwdRestore = '';
                 refreshFileList();
+                break;
+
+              case 'foreground':
+                var shells = ['bash', 'zsh', 'fish', 'sh', 'dash', 'ash'];
+                var newAtShell = shells.indexOf(msg.proc) !== -1;
+                if (newAtShell !== isAtShell) {
+                  isAtShell = newAtShell;
+                  renderFiltered();
+                }
                 break;
 
               case 'upload-init':
