@@ -393,6 +393,12 @@ func (s *Server) sendFileList(conn *wsConn, cwd string) {
 			IsDir: e.IsDir(),
 		})
 	}
+	sort.Slice(files, func(i, j int) bool {
+		if files[i].IsDir != files[j].IsDir {
+			return files[i].IsDir
+		}
+		return strings.ToLower(files[i].Name) < strings.ToLower(files[j].Name)
+	})
 	s.wsSendJSON(conn, map[string]interface{}{
 		"type":  "file-list",
 		"dir":   cwd,
