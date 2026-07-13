@@ -27,6 +27,18 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
+// wsConn wraps a websocket.Conn with a mutex to prevent concurrent writes.
+type wsConn struct {
+	*websocket.Conn
+	writeMu sync.Mutex
+}
+
+func (c *wsConn) writeMessage(messageType int, data []byte) error {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+	return c.Conn.WriteMessage(messageType, data)
+}
+
 // uploadEntry tracks a partial upload.
 type uploadEntry struct {
 	ID        string    `json:"id"`
@@ -334,12 +346,12 @@ func (s *Server) downloadGC() {
 	}
 }
 
-func (s *Server) wsSendJSON(conn *websocket.Conn, v interface{}) error {
+func (s *Server) wsSendJSON(conn *wsConn, v interface{}) error {
 	data, err := json.Marshal(v)
 	if err != nil {
 		return err
 	}
-	return conn.WriteMessage(websocket.TextMessage, data)
+	return conn.writeMessage(websocket.TextMessage, data)
 }
 
 // dirHash returns a hex SHA-256 hash of the sorted directory entry names.
@@ -358,7 +370,7 @@ func dirHash(path string) string {
 }
 
 // sendFileList reads a directory and sends a file-list message over the WebSocket.
-func (s *Server) sendFileList(conn *websocket.Conn, cwd string) {
+func (s *Server) sendFileList(conn *wsConn, cwd string) {
 	entries, err := os.ReadDir(cwd)
 	if err != nil {
 		s.wsSendJSON(conn, map[string]string{"type": "file-list-error", "message": err.Error()})
@@ -402,12 +414,13 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	conn, err := upgrader.Upgrade(w, r, nil)
+	rawConn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("websocket upgrade: %v", err)
 		return
 	}
-	defer conn.Close()
+	conn := &wsConn{Conn: rawConn}
+	defer rawConn.Close()
 
 	sess, err := ptysession.New()
 	if err != nil {
@@ -418,7 +431,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	sessionToken := generateID()
 
 	s.mu.Lock()
-	s.activeSess[conn] = sess
+	s.activeSess[rawConn] = sess
 	s.mu.Unlock()
 
 	// Send session token for upload auth.
@@ -430,7 +443,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 
 	defer func() {
 		s.mu.Lock()
-		delete(s.activeSess, conn)
+		delete(s.activeSess, rawConn)
 		s.mu.Unlock()
 		sess.Close()
 	}()
@@ -481,7 +494,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				return
 			}
-			if err := conn.WriteMessage(websocket.BinaryMessage, buf[:n]); err != nil {
+			if err := conn.writeMessage(websocket.BinaryMessage, buf[:n]); err != nil {
 				return
 			}
 		}
