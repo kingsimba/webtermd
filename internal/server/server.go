@@ -18,8 +18,8 @@ import (
 	"sync"
 	"time"
 
-	"ax-term/internal/auth"
-	"ax-term/internal/ptysession"
+	"webtermd/internal/auth"
+	"webtermd/internal/ptysession"
 
 	"github.com/gorilla/websocket"
 )
@@ -85,7 +85,7 @@ func New(a *auth.Authenticator, staticFS fs.FS, noAuth bool, shell string) *Serv
 	if homeDir == "" {
 		homeDir = "/tmp"
 	}
-	uploadDir := filepath.Join(homeDir, ".ax-term-uploads")
+	uploadDir := filepath.Join(homeDir, ".webtermd-uploads")
 	os.MkdirAll(uploadDir, 0700)
 
 	s := &Server{

@@ -1,4 +1,4 @@
-module ax-term
+module webtermd
 
 go 1.26.1
 

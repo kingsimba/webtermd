@@ -148,7 +148,7 @@ func TestParseOpenSSHKey(t *testing.T) {
 	wire = append(wire, sshString(nBytes)...)
 
 	b64 := base64.StdEncoding.EncodeToString(wire)
-	akLine := "ssh-rsa " + b64 + " test@ax-term\n"
+	akLine := "ssh-rsa " + b64 + " test@webtermd\n"
 
 	sshDir := t.TempDir()
 	akPath := filepath.Join(sshDir, "authorized_keys")
@@ -237,7 +237,7 @@ func TestEd25519OpenSSHKey(t *testing.T) {
 	wire = append(wire, sshString([]byte(pub))...)
 
 	b64 := base64.StdEncoding.EncodeToString(wire)
-	akLine := "ssh-ed25519 " + b64 + " test@ax-term\n"
+	akLine := "ssh-ed25519 " + b64 + " test@webtermd\n"
 
 	sshDir := t.TempDir()
 	os.WriteFile(filepath.Join(sshDir, "authorized_keys"), []byte(akLine), 0600)
@@ -270,7 +270,7 @@ func TestECDSAOpenSSHKey(t *testing.T) {
 	wire = append(wire, sshString(pubKeyBytes)...)
 
 	b64 := base64.StdEncoding.EncodeToString(wire)
-	akLine := algo + " " + b64 + " test@ax-term\n"
+	akLine := algo + " " + b64 + " test@webtermd\n"
 
 	sshDir := t.TempDir()
 	os.WriteFile(filepath.Join(sshDir, "authorized_keys"), []byte(akLine), 0600)

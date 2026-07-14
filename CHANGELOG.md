@@ -1,26 +1,26 @@
 # Changelog
 
-- 2026-07-14 ax-term: Support Ed25519 and ECDSA keys in challenge-response auth
-- 2026-07-14 ax-term: Add --shell flag to override shell for PTY sessions
-- 2026-07-14 ax-term: Add rate limiting on challenge endpoint
-- 2026-07-14 ax-term: Add MIT LICENSE
-- 2026-07-14 ax-term: Fix CWD tracking and foreground detection for screen, tmux, and nested shells
-- 2026-07-14 ax-term: Add browser-side auth dialog with openssl signing command and localStorage persistence
-- 2026-07-13 ax-term: Add inline file preview for text files
-- 2026-07-13 ax-term: Fix terminal size not sent to server on reconnect
-- 2026-07-13 ax-term: Add parent-directory navigation in file list with foreground-process guard
-- 2026-07-13 ax-term: Fix concurrent websocket write panic
-- 2026-07-13 ax-term: Auto-refresh file list on directory changes
-- 2026-07-13 ax-term: Add hidden-file toggle and refresh button in sidebar header
-- 2026-07-13 ax-term: Open sidebar by default
-- 2026-07-13 ax-term: Rename upload query param to utoken
-- 2026-07-13 ax-term: Add Windows-terminal Ctrl+C/V copy/paste shortcuts
-- 2026-07-13 ax-term: Restore CWD after server restart
-- 2026-07-13 ax-term: Support reverse-proxy base-path prefix
-- 2026-07-13 ax-term: Move upload temp dir to home and fix resume after restart
-- 2026-07-13 ax-term: Add file filter and auto-refresh in side panel
-- 2026-07-13 ax-term: Add file listing and download with Range support
-- 2026-07-12 ax-term: Add file upload side panel with drag-drop, CWD tracking, and restart resilience
-- 2026-07-12 ax-term: Embed static files into binary
-- 2026-07-12 ax-term: Add --no-auth flag to disable authentication
-- 2026-07-12 ax-term: Initial implementation — WebSocket PTY server with SSH challenge-response auth, xterm.js frontend, and build/test/clean tooling
+- 2026-07-14 webtermd: Support Ed25519 and ECDSA keys in challenge-response auth
+- 2026-07-14 webtermd: Add --shell flag to override shell for PTY sessions
+- 2026-07-14 webtermd: Add rate limiting on challenge endpoint
+- 2026-07-14 webtermd: Add MIT LICENSE
+- 2026-07-14 webtermd: Fix CWD tracking and foreground detection for screen, tmux, and nested shells
+- 2026-07-14 webtermd: Add browser-side auth dialog with openssl signing command and localStorage persistence
+- 2026-07-13 webtermd: Add inline file preview for text files
+- 2026-07-13 webtermd: Fix terminal size not sent to server on reconnect
+- 2026-07-13 webtermd: Add parent-directory navigation in file list with foreground-process guard
+- 2026-07-13 webtermd: Fix concurrent websocket write panic
+- 2026-07-13 webtermd: Auto-refresh file list on directory changes
+- 2026-07-13 webtermd: Add hidden-file toggle and refresh button in sidebar header
+- 2026-07-13 webtermd: Open sidebar by default
+- 2026-07-13 webtermd: Rename upload query param to utoken
+- 2026-07-13 webtermd: Add Windows-terminal Ctrl+C/V copy/paste shortcuts
+- 2026-07-13 webtermd: Restore CWD after server restart
+- 2026-07-13 webtermd: Support reverse-proxy base-path prefix
+- 2026-07-13 webtermd: Move upload temp dir to home and fix resume after restart
+- 2026-07-13 webtermd: Add file filter and auto-refresh in side panel
+- 2026-07-13 webtermd: Add file listing and download with Range support
+- 2026-07-12 webtermd: Add file upload side panel with drag-drop, CWD tracking, and restart resilience
+- 2026-07-12 webtermd: Embed static files into binary
+- 2026-07-12 webtermd: Add --no-auth flag to disable authentication
+- 2026-07-12 webtermd: Initial implementation — WebSocket PTY server with SSH challenge-response auth, xterm.js frontend, and build/test/clean tooling

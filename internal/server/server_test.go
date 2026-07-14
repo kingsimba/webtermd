@@ -17,7 +17,7 @@ import (
 	"strings"
 	"testing"
 
-	"ax-term/internal/auth"
+	"webtermd/internal/auth"
 
 	"github.com/gorilla/websocket"
 )

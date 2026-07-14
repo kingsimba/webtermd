@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build script for ax-term — native or cross-compiled static binary."""
+"""Build script for webtermd — native or cross-compiled static binary."""
 
 import argparse
 import os
@@ -18,7 +18,7 @@ def run(cmd, **kwargs):
 def cmd_build(args):
     goos = "linux"
     goarch = args.arm64 and "arm64" or "amd64"
-    output = "bin/ax-term-arm64" if args.arm64 else "bin/ax-term"
+    output = "bin/webtermd-arm64" if args.arm64 else "bin/webtermd"
 
     env = os.environ.copy()
     env["GOOS"] = goos
@@ -68,7 +68,7 @@ def cmd_test(args):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Build and test ax-term")
+    parser = argparse.ArgumentParser(description="Build and test webtermd")
     sub = parser.add_subparsers(dest="command", required=True)
 
     # build

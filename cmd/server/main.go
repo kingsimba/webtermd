@@ -5,9 +5,9 @@ import (
 	"log"
 	"net/http"
 
-	"ax-term/internal/auth"
-	"ax-term/internal/server"
-	"ax-term/static"
+	"webtermd/internal/auth"
+	"webtermd/internal/server"
+	"webtermd/static"
 )
 
 func main() {
@@ -30,6 +30,6 @@ func main() {
 		log.Println("  Do NOT use this in production.")
 		log.Println("==============================================")
 	}
-	log.Printf("ax-term listening on %s (shell=%s, no-auth=%v)", *addr, *shell, *noAuth)
+	log.Printf("webtermd listening on %s (shell=%s, no-auth=%v)", *addr, *shell, *noAuth)
 	log.Fatal(http.ListenAndServe(*addr, srv))
 }

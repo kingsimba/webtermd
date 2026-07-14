@@ -1,10 +1,10 @@
 # API Reference
 
-ax-term is an edge daemon. Its only client is the Node.js gateway, which holds the private key. End-user authentication (LDAP) happens at the gateway — ax-term does not know or care about users.
+webtermd is an edge daemon. Its only client is the Node.js gateway, which holds the private key. End-user authentication (LDAP) happens at the gateway — webtermd does not know or care about users.
 
 ## Authentication Model
 
-ax-term reads `~/.ssh/authorized_keys` on each connection attempt. Key changes take effect immediately — no restart needed. The Node.js gateway holds the matching private key. To connect, the gateway proves key possession via challenge-response — the private key never leaves the gateway.
+webtermd reads `~/.ssh/authorized_keys` on each connection attempt. Key changes take effect immediately — no restart needed. The Node.js gateway holds the matching private key. To connect, the gateway proves key possession via challenge-response — the private key never leaves the gateway.
 
 Adding or rotating keys is just `ssh-copy-id` or editing `authorized_keys`.
 
@@ -136,7 +136,7 @@ Tokens can be reused for Range retries. A heartbeat goroutine extends the expiry
 
 ### WS /ws
 
-Open a PTY session as the ax-term process user.
+Open a PTY session as the webtermd process user.
 
 **Connection**
 
@@ -492,8 +492,8 @@ On startup, the server scans the upload directory for `.json` files and rebuilds
 1. Gateway fetches a challenge from `GET /api/challenge`
 2. Gateway signs the nonce with its private key
 3. Gateway opens `WS /ws?nonce=...&signature=...`
-4. ax-term verifies the signature, spawns a Bash PTY
+4. webtermd verifies the signature, spawns a PTY shell
 5. Server sends `session` message with an upload token
-6. Gateway relays keystrokes and output between browser and ax-term
+6. Gateway relays keystrokes and output between browser and webtermd
 7. Shell CWD changes are pushed to the client as `cwd` messages
 8. On disconnect, the PTY is terminated

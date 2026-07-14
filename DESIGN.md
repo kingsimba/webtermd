@@ -1,6 +1,6 @@
 # Design Insights
 
-Key architectural decisions and non-obvious mechanisms in ax-term.
+Key architectural decisions and non-obvious mechanisms in webtermd.
 
 ---
 
