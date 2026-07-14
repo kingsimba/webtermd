@@ -407,6 +407,7 @@ func (s *Server) sendFileList(conn *wsConn, cwd string) {
 }
 
 func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
+	var wsNonce string
 	if !s.noAuth {
 		nonce := r.URL.Query().Get("nonce")
 		signature := r.URL.Query().Get("signature")
@@ -418,6 +419,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "authentication failed", http.StatusUnauthorized)
 			return
 		}
+		wsNonce = nonce
 	}
 
 	rawConn, err := upgrader.Upgrade(w, r, nil)
@@ -427,6 +429,24 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	}
 	conn := &wsConn{Conn: rawConn}
 	defer rawConn.Close()
+
+	// Extend the nonce TTL periodically while the connection stays alive.
+	if wsNonce != "" {
+		nonceStop := make(chan struct{})
+		defer close(nonceStop)
+		go func() {
+			ticker := time.NewTicker(1 * time.Minute)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-nonceStop:
+					return
+				case <-ticker.C:
+					s.auth.ExtendNonce(wsNonce)
+				}
+			}
+		}()
+	}
 
 	sess, err := ptysession.New()
 	if err != nil {

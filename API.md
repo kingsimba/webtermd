@@ -6,7 +6,7 @@ ax-term is an edge daemon. Its only client is the Node.js gateway, which holds t
 
 ax-term reads `~/.ssh/authorized_keys` on each connection attempt. Key changes take effect immediately — no restart needed. The Node.js gateway holds the matching private key. To connect, the gateway proves key possession via challenge-response — the private key never leaves the gateway.
 
-Adding or rotating keys is just `ssh-copy-id` or editing `authorized_keys`. No rebuild needed.
+Adding or rotating keys is just `ssh-copy-id` or editing `authorized_keys`.
 
 ---
 
@@ -24,7 +24,23 @@ Returns a one-time nonce for WebSocket authentication.
 }
 ```
 
-The nonce is a base64-encoded random string. It expires after 60 seconds and is single-use.
+The nonce is a base64-encoded random string. It expires after 5 minutes of inactivity — each successful verification extends the expiry, so the same nonce+signature pair can be reused across page refreshes while the session stays active.
+
+#### Signing from the command line
+
+The server uses RSA PKCS1v1.5 over SHA-256. The frontend displays a one-liner you can copy and run to sign the nonce:
+
+```bash
+printf '%s' '<nonce>' | openssl dgst -sha256 -sign ~/.ssh/id_rsa | base64 -w0
+```
+
+If your key has a passphrase, OpenSSL will prompt for it. Paste the output into the signature field in the frontend.
+
+**Key format requirement**: Your private key must be in PEM format (begins with `-----BEGIN RSA PRIVATE KEY-----`). OpenSSH-native format keys (begins with `-----BEGIN OPENSSH PRIVATE KEY-----`) need a one-time conversion:
+
+```bash
+ssh-keygen -p -m PEM -f ~/.ssh/id_rsa
+```
 
 ---
 

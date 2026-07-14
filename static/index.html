@@ -472,6 +472,137 @@
       white-space: pre-wrap;
       word-break: break-all;
     }
+
+    /* --- signature overlay --- */
+    #sig-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.85);
+      z-index: 300;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #sig-overlay.open {
+      display: flex;
+    }
+
+    #sig-dialog {
+      background: #1e1e1e;
+      border: 1px solid #555;
+      border-radius: 6px;
+      max-width: 560px;
+      width: 90%;
+      padding: 20px 24px;
+      color: #ccc;
+      font-family: monospace;
+      font-size: 13px;
+    }
+
+    #sig-dialog h2 {
+      margin: 0 0 10px 0;
+      font-size: 16px;
+      color: #e0e0e0;
+    }
+
+    #sig-dialog p {
+      margin: 0 0 14px 0;
+      font-size: 12px;
+      color: #999;
+      line-height: 1.4;
+    }
+
+    #sig-dialog label {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 11px;
+      color: #888;
+      text-transform: uppercase;
+    }
+
+    #sig-cmd {
+      background: #111;
+      border: 1px solid #444;
+      border-radius: 4px;
+      padding: 8px 10px;
+      margin-bottom: 14px;
+      font-size: 11px;
+      color: #64b5f6;
+      white-space: pre-wrap;
+      word-break: break-all;
+      user-select: all;
+      cursor: text;
+    }
+
+    #sig-input {
+      width: 100%;
+      padding: 8px 10px;
+      background: #2d2d2d;
+      border: 1px solid #555;
+      color: #ccc;
+      font-family: monospace;
+      font-size: 13px;
+      border-radius: 4px;
+      outline: none;
+      box-sizing: border-box;
+    }
+
+    #sig-input:focus {
+      border-color: #8bc34a;
+    }
+
+    #sig-buttons {
+      display: flex;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    #sig-connect {
+      flex: 1;
+      padding: 8px;
+      background: #4caf50;
+      border: none;
+      color: #fff;
+      cursor: pointer;
+      font-size: 14px;
+      font-family: monospace;
+      border-radius: 4px;
+    }
+
+    #sig-connect:hover {
+      background: #66bb6a;
+    }
+
+    #sig-connect:disabled {
+      background: #555;
+      cursor: default;
+    }
+
+    #sig-refresh {
+      padding: 8px 14px;
+      background: #3c3c3c;
+      border: 1px solid #555;
+      color: #ccc;
+      cursor: pointer;
+      font-size: 13px;
+      font-family: monospace;
+      border-radius: 4px;
+    }
+
+    #sig-refresh:hover {
+      background: #555;
+    }
+
+    #sig-error {
+      color: #d32f2f;
+      font-size: 12px;
+      margin-top: 8px;
+      display: none;
+    }
   </style>
 </head>
 
@@ -523,6 +654,22 @@
       <div id="preview-body">
         <pre></pre>
       </div>
+    </div>
+  </div>
+  <div id="sig-overlay">
+    <div id="sig-dialog">
+      <h2>Authentication Required</h2>
+      <p>Sign the challenge nonce with your private key and paste the signature below.</p>
+      <label>Run this command in your terminal</label>
+      <div id="sig-cmd"></div>
+      <label for="sig-input">Signature</label>
+      <input id="sig-input" type="text" placeholder="Paste base64-encoded signature here..." autocomplete="off"
+        spellcheck="false">
+      <div id="sig-buttons">
+        <button id="sig-refresh" title="Get a new challenge">↻ Refresh</button>
+        <button id="sig-connect">Connect</button>
+      </div>
+      <div id="sig-error"></div>
     </div>
   </div>
   <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
@@ -615,6 +762,8 @@
       var basePath = location.pathname.replace(/\/[^/]*$/, '');
       var pendingCwdRestore = '';
       var isAtShell = true;
+      var sigNonce = '';
+      var sigOpenFired = false;
 
       function setCWD(path) {
         cwdPath.textContent = path;
@@ -1043,70 +1192,128 @@
       });
 
       // --- WebSocket ---
-      function connect() {
+      function connect(signature) {
+        sigOpenFired = false;
+        // When submitting a signature, reuse the existing nonce from the dialog.
+        // Otherwise fetch a fresh challenge.
+        if (signature && sigNonce) {
+          openWS(sigNonce, signature);
+          return;
+        }
         fetch(basePath + '/api/challenge')
           .then(function (r) {
             if (!r.ok) throw new Error('challenge failed: ' + r.status);
             return r.json();
           })
           .then(function (data) {
-            var nonce = data.nonce;
-            var signature = '';
-            var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-            var url = proto + '//' + location.host + basePath + '/ws?nonce=' + encodeURIComponent(nonce) + '&signature=' + encodeURIComponent(signature);
-            ws = new WebSocket(url);
-            ws.binaryType = 'arraybuffer';
-
-            ws.onopen = function () {
-              term.focus();
-              if (termDataDisposable) termDataDisposable.dispose();
-              termDataDisposable = term.onData(function (data) {
-                if (ws && ws.readyState === WebSocket.OPEN) {
-                  ws.send(data);
-                }
-              });
-
-              if (termResizeDisposable) termResizeDisposable.dispose();
-              termResizeDisposable = term.onResize(function (_a) {
-                if (ws && ws.readyState === WebSocket.OPEN) {
-                  ws.send(JSON.stringify({
-                    type: 'resize',
-                    rows: _a.rows,
-                    cols: _a.cols
-                  }));
-                }
-              });
-
-              // Send current terminal size immediately so the new PTY
-              // session matches the client viewport on reconnect.
-              ws.send(JSON.stringify({
-                type: 'resize',
-                rows: term.rows,
-                cols: term.cols
-              }));
-
-              // Remember last CWD so we can restore it if the server
-              // reports a different one (indicating a fresh shell after
-              // server restart, not just a network blip).
-              pendingCwdRestore = cwdPath.textContent;
-            };
-
-            ws.onmessage = wsMainHandler;
-
-            ws.onclose = function () {
-              term.write('\r\n\x1b[31m[disconnected]\x1b[0m\r\n');
-              setTimeout(connect, 2000);
-            };
-
-            ws.onerror = function () {
-              showError('WebSocket connection failed');
-            };
+            sigNonce = data.nonce;
+            openWS(sigNonce, signature || '');
           })
           .catch(function (err) {
             showError('Connection error: ' + err.message);
-            setTimeout(connect, 3000);
+            setTimeout(function () { connect(); }, 3000);
           });
       }
+
+      function openWS(nonce, sig) {
+        var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        var url = proto + '//' + location.host + basePath + '/ws?nonce=' + encodeURIComponent(nonce) + '&signature=' + encodeURIComponent(sig);
+        ws = new WebSocket(url);
+        ws.binaryType = 'arraybuffer';
+
+        ws.onopen = function () {
+          sigOpenFired = true;
+          if (sig && nonce) {
+            try { localStorage.setItem('ax-auth', JSON.stringify({ nonce: nonce, sig: sig })); } catch (e) { }
+          }
+          document.getElementById('sig-overlay').classList.remove('open');
+          term.focus();
+          if (termDataDisposable) termDataDisposable.dispose();
+          termDataDisposable = term.onData(function (data) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+              ws.send(data);
+            }
+          });
+
+          if (termResizeDisposable) termResizeDisposable.dispose();
+          termResizeDisposable = term.onResize(function (_a) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({
+                type: 'resize',
+                rows: _a.rows,
+                cols: _a.cols
+              }));
+            }
+          });
+
+          // Send current terminal size immediately so the new PTY
+          // session matches the client viewport on reconnect.
+          ws.send(JSON.stringify({
+            type: 'resize',
+            rows: term.rows,
+            cols: term.cols
+          }));
+
+          // Remember last CWD so we can restore it if the server
+          // reports a different one (indicating a fresh shell after
+          // server restart, not just a network blip).
+          pendingCwdRestore = cwdPath.textContent;
+        };
+
+        ws.onmessage = wsMainHandler;
+
+        ws.onclose = function () {
+          if (!sigOpenFired) {
+            if (!sig) {
+              // First connect or refresh — show signature dialog.
+              showSigDialog();
+              return;
+            }
+            // Saved or submitted signature was rejected. Clear and show dialog.
+            try { localStorage.removeItem('ax-auth'); } catch (e) { }
+            document.getElementById('sig-error').style.display = 'block';
+            document.getElementById('sig-error').textContent = 'Authentication failed. Check your signature or refresh the nonce.';
+            document.getElementById('sig-overlay').classList.add('open');
+            return;
+          }
+          term.write('\r\n\x1b[31m[disconnected]\x1b[0m\r\n');
+          setTimeout(function () { connect(); }, 2000);
+        };
+
+        ws.onerror = function () {
+          if (sigOpenFired) {
+            showError('WebSocket connection failed');
+          }
+        };
+      }
+
+      function showSigDialog() {
+        var cmd = "printf '%s' '" + sigNonce + "' | openssl dgst -sha256 -sign ~/.ssh/id_rsa | base64 -w0";
+        document.getElementById('sig-cmd').textContent = cmd;
+        document.getElementById('sig-input').value = '';
+        document.getElementById('sig-error').style.display = 'none';
+        document.getElementById('sig-overlay').classList.add('open');
+        document.getElementById('sig-input').focus();
+      }
+
+      // --- auth dialog handlers ---
+      document.getElementById('sig-connect').addEventListener('click', function () {
+        var sig = document.getElementById('sig-input').value.trim();
+        if (!sig) return;
+        document.getElementById('sig-overlay').classList.remove('open');
+        connect(sig);
+      });
+
+      document.getElementById('sig-refresh').addEventListener('click', function () {
+        document.getElementById('sig-overlay').classList.remove('open');
+        connect();
+      });
+
+      document.getElementById('sig-input').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+          document.getElementById('sig-connect').click();
+        }
+      });
 
       function wsMainHandler(ev) {
         if (typeof ev.data === 'string') {
@@ -1199,7 +1406,17 @@
         }
       }
 
-      connect();
+      var savedAuth = null;
+      try {
+        var raw = localStorage.getItem('ax-auth');
+        if (raw) savedAuth = JSON.parse(raw);
+      } catch (e) { }
+      if (savedAuth && savedAuth.nonce && savedAuth.sig) {
+        sigNonce = savedAuth.nonce;
+        openWS(savedAuth.nonce, savedAuth.sig);
+      } else {
+        connect();
+      }
     })();
   </script>
 </body>

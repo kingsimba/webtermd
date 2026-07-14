@@ -76,7 +76,7 @@ func TestVerifyWrongSignature(t *testing.T) {
 	}
 }
 
-func TestNonceSingleUse(t *testing.T) {
+func TestNonceReusableWithinTTL(t *testing.T) {
 	priv, _ := rsa.GenerateKey(rand.Reader, 2048)
 
 	sshDir := t.TempDir()
@@ -96,8 +96,9 @@ func TestNonceSingleUse(t *testing.T) {
 	if !a.Verify(nonce, sigB64) {
 		t.Fatal("first use rejected")
 	}
-	if a.Verify(nonce, sigB64) {
-		t.Fatal("replay accepted")
+	// Nonces are now reusable within the TTL window.
+	if !a.Verify(nonce, sigB64) {
+		t.Fatal("reuse within TTL rejected")
 	}
 }
 

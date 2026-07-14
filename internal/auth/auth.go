@@ -16,7 +16,7 @@ import (
 )
 
 // NonceTTL is how long a challenge nonce remains valid.
-const NonceTTL = 60 * time.Second
+const NonceTTL = 5 * time.Minute
 
 type nonceEntry struct {
 	expires time.Time
@@ -24,10 +24,10 @@ type nonceEntry struct {
 
 // Authenticator manages challenge-response authentication using ~/.ssh/authorized_keys.
 type Authenticator struct {
-	mu        sync.Mutex
-	nonces    map[string]nonceEntry
-	sshDir    string
-	stopGC    chan struct{}
+	mu     sync.Mutex
+	nonces map[string]nonceEntry
+	sshDir string
+	stopGC chan struct{}
 }
 
 // New creates an Authenticator that reads authorized_keys from the current user's ~/.ssh.
@@ -76,7 +76,7 @@ func (a *Authenticator) GenerateChallenge() string {
 }
 
 // Verify checks that signature is a valid signature of nonce by one of the keys in authorized_keys.
-// Returns true if the signature is valid and the nonce was not used before.
+// Nonces are reusable within their TTL window — each successful verification extends the expiry.
 func (a *Authenticator) Verify(nonce, signatureB64 string) bool {
 	a.mu.Lock()
 	entry, ok := a.nonces[nonce]
@@ -89,8 +89,6 @@ func (a *Authenticator) Verify(nonce, signatureB64 string) bool {
 		a.mu.Unlock()
 		return false
 	}
-	// Single-use — remove immediately.
-	delete(a.nonces, nonce)
 	a.mu.Unlock()
 
 	sig, err := base64.StdEncoding.DecodeString(signatureB64)
@@ -106,10 +104,25 @@ func (a *Authenticator) Verify(nonce, signatureB64 string) bool {
 	hash := sha256.Sum256([]byte(nonce))
 	for _, pubKey := range keys {
 		if pubKey.Verify(hash[:], sig) {
+			// Extend the TTL so the same nonce+sig can be reused
+			// across page refreshes while the session is alive.
+			a.mu.Lock()
+			a.nonces[nonce] = nonceEntry{expires: time.Now().Add(NonceTTL)}
+			a.mu.Unlock()
 			return true
 		}
 	}
 	return false
+}
+
+// ExtendNonce refreshes a nonce's TTL. Called periodically while the
+// WebSocket stays open so the saved pair survives page refreshes.
+func (a *Authenticator) ExtendNonce(nonce string) {
+	a.mu.Lock()
+	if _, ok := a.nonces[nonce]; ok {
+		a.nonces[nonce] = nonceEntry{expires: time.Now().Add(NonceTTL)}
+	}
+	a.mu.Unlock()
 }
 
 // loadAuthorizedKeys reads and parses ~/.ssh/authorized_keys.

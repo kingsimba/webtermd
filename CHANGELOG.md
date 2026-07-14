@@ -1,5 +1,6 @@
 # Changelog
 
+- 2026-07-14 ax-term: Add browser-side auth dialog with openssl signing command and localStorage persistence
 - 2026-07-13 ax-term: Add inline file preview for text files
 - 2026-07-13 ax-term: Fix terminal size not sent to server on reconnect
 - 2026-07-13 ax-term: Add parent-directory navigation in file list with foreground-process guard
