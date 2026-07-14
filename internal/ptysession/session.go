@@ -69,24 +69,58 @@ func (s *Session) Close() error {
 	return nil
 }
 
-// GetCWD returns the current working directory of the shell process.
+// leafPID walks /proc/<pid>/task/<pid>/children to find the deepest
+// living descendant.  This handles nested shells (bash→bash),
+// screen/tmux (bash→screen→SCREEN→bash), and foreground commands
+// (bash→vim).  Returns the starting pid when traversal fails or no
+// children exist.
+func leafPID(pid int) int {
+	for {
+		data, err := os.ReadFile(fmt.Sprintf("/proc/%d/task/%d/children", pid, pid))
+		if err != nil {
+			return pid
+		}
+		children := strings.Fields(string(data))
+		found := false
+		for _, c := range children {
+			child, err := strconv.Atoi(c)
+			if err != nil {
+				continue
+			}
+			// Verify child is still alive.
+			if _, err := os.Readlink(fmt.Sprintf("/proc/%d/cwd", child)); err == nil {
+				pid = child
+				found = true
+				break
+			}
+		}
+		if !found {
+			return pid
+		}
+	}
+}
+
+// GetCWD returns the current working directory of the shell process
+// or its deepest child (handles screen, tmux, nested shells).
 func (s *Session) GetCWD() (string, error) {
 	if s.cmd.Process == nil {
 		return "", fmt.Errorf("process not started")
 	}
-	link := fmt.Sprintf("/proc/%d/cwd", s.cmd.Process.Pid)
+	pid := leafPID(s.cmd.Process.Pid)
+	link := fmt.Sprintf("/proc/%d/cwd", pid)
 	return filepath.EvalSymlinks(link)
 }
 
 // ForegroundProc returns the name of the foreground process on the
-// controlling terminal, or "" if it cannot be determined.  Reads
-// /proc/<pid>/stat to find the tpgid (foreground process group), then
-// /proc/<tpgid>/comm for the name.  Returns "bash", "vim", "python3", etc.
+// controlling terminal, or "" if it cannot be determined.  Uses leafPID
+// to find the innermost process, then reads /proc/<pid>/stat to find
+// the tpgid (foreground process group), then /proc/<tpgid>/comm for
+// the name.  Returns "bash", "vim", "python3", etc.
 func (s *Session) ForegroundProc() string {
 	if s.cmd.Process == nil {
 		return ""
 	}
-	pid := s.cmd.Process.Pid
+	pid := leafPID(s.cmd.Process.Pid)
 
 	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
 	if err != nil {

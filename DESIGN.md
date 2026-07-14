@@ -30,7 +30,9 @@ A single WebSocket carries two lanes: raw PTY bytes (bidirectional binary) and J
 
 The server reads `/proc/<pid>/cwd` every 500ms to detect directory changes. There are no shell hooks, no `PROMPT_COMMAND`, no OSC 7 escape sequences.
 
-**Decision:** Polling is simpler than injecting behavior into the shell. It works regardless of shell configuration (bash, zsh, fish), doesn't require modifying `.bashrc`, and survives `exec bash` or nested shells — as long as the top-level shell process changes directory, `/proc/<pid>/cwd` reflects it.
+**Decision:** Polling is simpler than injecting behavior into the shell. It works regardless of shell configuration (bash, zsh, fish), doesn't require modifying `.bashrc`, and survives `exec bash` or nested shells — because the server walks the process tree via `/proc/<pid>/task/<pid>/children` to find the deepest living descendant and reads _that_ process's CWD. This handles nested bash (`bash→bash`), screen/tmux (`bash→screen→SCREEN→bash`) and foreground commands (`bash→vim`) transparently.
+
+**Why walk the process tree:** The top-level shell process never chdirs when the user runs screen or a nested shell — only the innermost interactive process moves. Following `/proc/<pid>/task/<pid>/children` greedily to a leaf gives the actual CWD the user is working in. The walk is cheap (a few syscalls per tick) and uses only `/proc` — no new dependencies.
 
 **Trade-off:** Up to 500ms of staleness. For a terminal that displays the CWD in a toolbar, this is imperceptible. A more precise approach would intercept `cd` via shell hooks, but that breaks when the user runs a different shell or clears their environment.
 
