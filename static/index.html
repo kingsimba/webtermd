@@ -725,27 +725,88 @@
       term.open(document.getElementById('terminal'));
       fitAddon.fit();
 
+      // --- clipboard sink (for plain-HTTP contexts) ---
+      // navigator.clipboard is undefined over HTTP. We keep a hidden
+      // <textarea> and focus it on Ctrl+V; the browser fires a native
+      // 'paste' event with clipboardData that we can read synchronously.
+      // For Ctrl+C we populate it with the selection and let the browser's
+      // copy default action pick it up.
+      var hasClipboardAPI = !!(navigator.clipboard && navigator.clipboard.readText);
+
+      var clipSink = document.createElement('textarea');
+      clipSink.style.position = 'fixed';
+      clipSink.style.top = '0';
+      clipSink.style.left = '-9999px';
+      clipSink.style.width = '1px';
+      clipSink.style.height = '1px';
+      clipSink.style.opacity = '0';
+      clipSink.setAttribute('tabindex', '-1');
+      clipSink.setAttribute('autocomplete', 'off');
+      clipSink.setAttribute('autocorrect', 'off');
+      clipSink.setAttribute('autocapitalize', 'off');
+      clipSink.setAttribute('spellcheck', 'false');
+      document.body.appendChild(clipSink);
+
+      clipSink.addEventListener('paste', function (ev) {
+        var data = ev.clipboardData ? ev.clipboardData.getData('text/plain') : '';
+        ev.preventDefault();
+        term.focus();
+        if (data) term.paste(data);
+      });
+
       // Windows-terminal-style copy/paste shortcuts.
       // Capture-phase DOM listener runs before xterm.js internals.
+      // stopImmediatePropagation prevents xterm from sending \x03/\x16
+      // and — critically — from calling preventDefault, which would
+      // suppress the browser's native paste/copy default action.
       document.getElementById('terminal').addEventListener('keydown', function (e) {
         if (!e.ctrlKey || e.altKey || e.metaKey) return;
-        // Ctrl+C: copy selection, or send SIGINT if nothing selected.
+
+        // Ctrl+C: copy selection, or fall through to SIGINT.
         if (e.key === 'c' || e.key === 'C') {
           var sel = term.getSelection();
           if (sel) {
             e.preventDefault();
             e.stopImmediatePropagation();
-            navigator.clipboard.writeText(sel).catch(function () { });
             term.clearSelection();
+            if (hasClipboardAPI) {
+              navigator.clipboard.writeText(sel).catch(function () { });
+            } else {
+              // execCommand('copy') is the only synchronous clipboard
+              // write available in non-secure (HTTP) contexts. It's
+              // deprecated but still functional and works from a user
+              // gesture (this keydown handler satisfies that).
+              clipSink.value = sel;
+              clipSink.select();
+              clipSink.focus();
+              try { document.execCommand('copy'); } catch (err) { }
+              setTimeout(function () { term.focus(); }, 0);
+            }
           }
+          // else: nothing selected — don't stop propagation, \x03
+          // reaches xterm and is sent to the PTY as SIGINT.
+          return;
         }
+
         // Ctrl+V: paste from clipboard.
         if (e.key === 'v' || e.key === 'V') {
-          e.preventDefault();
           e.stopImmediatePropagation();
-          navigator.clipboard.readText().then(function (text) {
-            if (text) term.paste(text);
-          }).catch(function () { });
+          if (hasClipboardAPI) {
+            e.preventDefault();
+            navigator.clipboard.readText().then(function (text) {
+              if (text) term.paste(text);
+            }).catch(function () { });
+          } else {
+            // Focus clipSink so the browser fires 'paste' on it.
+            // The paste listener reads clipboardData and forwards
+            // the text to the terminal via term.paste().
+            clipSink.value = '';
+            clipSink.focus();
+            setTimeout(function () {
+              if (document.activeElement === clipSink) term.focus();
+            }, 0);
+          }
+          return;
         }
       }, true);
 
