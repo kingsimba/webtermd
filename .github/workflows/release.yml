@@ -1,0 +1,60 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-amd64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+      - name: Build
+        env:
+          CGO_ENABLED: "0"
+          GOOS: linux
+          GOARCH: amd64
+        run: |
+          go build -ldflags="-s -w" -o webtermd ./cmd/server
+          cp -r static webtermd-static
+      - name: Package
+        run: tar czf webtermd-linux-amd64.tar.gz webtermd webtermd-static
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            webtermd-linux-amd64.tar.gz
+            webtermd
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-arm64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+      - name: Build
+        env:
+          CGO_ENABLED: "0"
+          GOOS: linux
+          GOARCH: arm64
+          GOARM: "7"
+        run: |
+          go build -ldflags="-s -w" -o webtermd-arm64 ./cmd/server
+          cp -r static webtermd-arm64-static
+      - name: Package
+        run: tar czf webtermd-linux-arm64.tar.gz webtermd-arm64 webtermd-arm64-static
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            webtermd-linux-arm64.tar.gz
+            webtermd-arm64
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
