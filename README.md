@@ -9,7 +9,7 @@
 
 </div>
 
-![](docs/screenshot.png)
+![](./docs/screen-record.gif)
 
 ## Quick Start
 
