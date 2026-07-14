@@ -15,7 +15,9 @@ RestartSec=5
 # NoNewPrivileges=yes
 # PrivateTmp=yes
 # ProtectSystem=strict
-# ReadWritePaths=/home/robot/.ssh
+# InaccessiblePaths=/opt
+# InaccessiblePaths=/etc/nginx
+# InaccessiblePaths=/etc/systemd
 
 [Install]
 WantedBy=multi-user.target
