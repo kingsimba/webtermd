@@ -9,6 +9,8 @@
 
 </div>
 
+![](docs/screenshot.png)
+
 ## Quick Start
 
 ```bash
