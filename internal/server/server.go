@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -64,6 +65,7 @@ type Server struct {
 	auth       *auth.Authenticator
 	mux        http.ServeMux
 	noAuth     bool
+	shell      string
 	activeSess map[*websocket.Conn]*ptysession.Session
 	mu         sync.Mutex
 
@@ -72,10 +74,13 @@ type Server struct {
 	uploadMu       sync.Mutex
 	downloadTokens map[string]*downloadEntry
 	downloadMu     sync.Mutex
+
+	rateLimit   map[string][]time.Time
+	rateLimitMu sync.Mutex
 }
 
 // New creates a new Server.
-func New(a *auth.Authenticator, staticFS fs.FS, noAuth bool) *Server {
+func New(a *auth.Authenticator, staticFS fs.FS, noAuth bool, shell string) *Server {
 	homeDir, _ := os.UserHomeDir()
 	if homeDir == "" {
 		homeDir = "/tmp"
@@ -86,10 +91,12 @@ func New(a *auth.Authenticator, staticFS fs.FS, noAuth bool) *Server {
 	s := &Server{
 		auth:           a,
 		noAuth:         noAuth,
+		shell:          shell,
 		activeSess:     make(map[*websocket.Conn]*ptysession.Session),
 		uploadDir:      uploadDir,
 		uploads:        make(map[string]*uploadEntry),
 		downloadTokens: make(map[string]*downloadEntry),
+		rateLimit:      make(map[string][]time.Time),
 	}
 
 	// Recover partial uploads from disk metadata.
@@ -103,6 +110,7 @@ func New(a *auth.Authenticator, staticFS fs.FS, noAuth bool) *Server {
 
 	go s.uploadGC()
 	go s.downloadGC()
+	go s.rateLimitGC()
 
 	return s
 }
@@ -116,9 +124,56 @@ func (s *Server) handleChallenge(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	if !s.allowChallenge(clientIP(r)) {
+		http.Error(w, "too many requests", http.StatusTooManyRequests)
+		return
+	}
 	nonce := s.auth.GenerateChallenge()
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"nonce": nonce})
+}
+
+// clientIP extracts the client IP, preferring X-Forwarded-For.
+func clientIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		// Take the first (leftmost) IP in the chain.
+		if i := strings.IndexByte(xff, ','); i >= 0 {
+			return strings.TrimSpace(xff[:i])
+		}
+		return strings.TrimSpace(xff)
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+// allowChallenge enforces a per-IP rate limit of 20 challenges per minute.
+func (s *Server) allowChallenge(ip string) bool {
+	const maxReqs = 20
+	window := 1 * time.Minute
+
+	s.rateLimitMu.Lock()
+	defer s.rateLimitMu.Unlock()
+
+	now := time.Now()
+	cutoff := now.Add(-window)
+
+	// Filter old entries.
+	timestamps := s.rateLimit[ip]
+	keep := timestamps[:0]
+	for _, ts := range timestamps {
+		if ts.After(cutoff) {
+			keep = append(keep, ts)
+		}
+	}
+	if len(keep) >= maxReqs {
+		s.rateLimit[ip] = keep
+		return false
+	}
+	s.rateLimit[ip] = append(keep, now)
+	return true
 }
 
 // --- upload helpers ---
@@ -346,6 +401,28 @@ func (s *Server) downloadGC() {
 	}
 }
 
+func (s *Server) rateLimitGC() {
+	for {
+		time.Sleep(5 * time.Minute)
+		s.rateLimitMu.Lock()
+		cutoff := time.Now().Add(-2 * time.Minute)
+		for ip, timestamps := range s.rateLimit {
+			keep := timestamps[:0]
+			for _, ts := range timestamps {
+				if ts.After(cutoff) {
+					keep = append(keep, ts)
+				}
+			}
+			if len(keep) == 0 {
+				delete(s.rateLimit, ip)
+			} else {
+				s.rateLimit[ip] = keep
+			}
+		}
+		s.rateLimitMu.Unlock()
+	}
+}
+
 func (s *Server) wsSendJSON(conn *wsConn, v interface{}) error {
 	data, err := json.Marshal(v)
 	if err != nil {
@@ -448,7 +525,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		}()
 	}
 
-	sess, err := ptysession.New()
+	sess, err := ptysession.New(s.shell)
 	if err != nil {
 		log.Printf("pty spawn: %v", err)
 		return

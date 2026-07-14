@@ -2,6 +2,9 @@ package auth
 
 import (
 	"crypto"
+	"crypto/ecdsa"
+	"crypto/ed25519"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -221,5 +224,128 @@ func TestChallengeUniqueness(t *testing.T) {
 	n2 := a.GenerateChallenge()
 	if n1 == n2 {
 		t.Fatal("duplicate nonces")
+	}
+}
+
+func TestEd25519OpenSSHKey(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Build SSH wire format: string("ssh-ed25519") + string(32-byte key)
+	wire := sshString([]byte("ssh-ed25519"))
+	wire = append(wire, sshString([]byte(pub))...)
+
+	b64 := base64.StdEncoding.EncodeToString(wire)
+	akLine := "ssh-ed25519 " + b64 + " test@ax-term\n"
+
+	sshDir := t.TempDir()
+	os.WriteFile(filepath.Join(sshDir, "authorized_keys"), []byte(akLine), 0600)
+
+	a := NewWithSSHDir(sshDir)
+	defer a.Close()
+
+	nonce := a.GenerateChallenge()
+	hash := sha256.Sum256([]byte(nonce))
+	sig := ed25519.Sign(priv, hash[:])
+	sigB64 := base64.StdEncoding.EncodeToString(sig)
+
+	if !a.Verify(nonce, sigB64) {
+		t.Fatal("Ed25519 OpenSSH key rejected")
+	}
+}
+
+func TestECDSAOpenSSHKey(t *testing.T) {
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	algo := "ecdsa-sha2-nistp256"
+	curve := "nistp256"
+
+	// Build SSH wire format: string(algo) + string(curve) + string(0x04 || x || y)
+	pubKeyBytes := elliptic.Marshal(priv.Curve, priv.X, priv.Y)
+	wire := sshString([]byte(algo))
+	wire = append(wire, sshString([]byte(curve))...)
+	wire = append(wire, sshString(pubKeyBytes)...)
+
+	b64 := base64.StdEncoding.EncodeToString(wire)
+	akLine := algo + " " + b64 + " test@ax-term\n"
+
+	sshDir := t.TempDir()
+	os.WriteFile(filepath.Join(sshDir, "authorized_keys"), []byte(akLine), 0600)
+
+	a := NewWithSSHDir(sshDir)
+	defer a.Close()
+
+	nonce := a.GenerateChallenge()
+	hash := sha256.Sum256([]byte(nonce))
+	sig, err := ecdsa.SignASN1(rand.Reader, priv, hash[:])
+	if err != nil {
+		t.Fatal(err)
+	}
+	sigB64 := base64.StdEncoding.EncodeToString(sig)
+
+	if !a.Verify(nonce, sigB64) {
+		t.Fatal("ECDSA OpenSSH key rejected")
+	}
+}
+
+func TestEd25519PEMKey(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pubBytes, err := x509.MarshalPKIXPublicKey(pub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pemBlock := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubBytes})
+
+	sshDir := t.TempDir()
+	os.WriteFile(filepath.Join(sshDir, "authorized_keys"), pemBlock, 0600)
+
+	a := NewWithSSHDir(sshDir)
+	defer a.Close()
+
+	nonce := a.GenerateChallenge()
+	hash := sha256.Sum256([]byte(nonce))
+	sig := ed25519.Sign(priv, hash[:])
+	sigB64 := base64.StdEncoding.EncodeToString(sig)
+
+	if !a.Verify(nonce, sigB64) {
+		t.Fatal("Ed25519 PEM key rejected")
+	}
+}
+
+func TestECDSAPEMKey(t *testing.T) {
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pubBytes, err := x509.MarshalPKIXPublicKey(&priv.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pemBlock := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubBytes})
+
+	sshDir := t.TempDir()
+	os.WriteFile(filepath.Join(sshDir, "authorized_keys"), pemBlock, 0600)
+
+	a := NewWithSSHDir(sshDir)
+	defer a.Close()
+
+	nonce := a.GenerateChallenge()
+	hash := sha256.Sum256([]byte(nonce))
+	sig, err := ecdsa.SignASN1(rand.Reader, priv, hash[:])
+	if err != nil {
+		t.Fatal(err)
+	}
+	sigB64 := base64.StdEncoding.EncodeToString(sig)
+
+	if !a.Verify(nonce, sigB64) {
+		t.Fatal("ECDSA PEM key rejected")
 	}
 }

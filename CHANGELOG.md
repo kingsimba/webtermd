@@ -1,5 +1,9 @@
 # Changelog
 
+- 2026-07-14 ax-term: Support Ed25519 and ECDSA keys in challenge-response auth
+- 2026-07-14 ax-term: Add --shell flag to override shell for PTY sessions
+- 2026-07-14 ax-term: Add rate limiting on challenge endpoint
+- 2026-07-14 ax-term: Add MIT LICENSE
 - 2026-07-14 ax-term: Fix CWD tracking and foreground detection for screen, tmux, and nested shells
 - 2026-07-14 ax-term: Add browser-side auth dialog with openssl signing command and localStorage persistence
 - 2026-07-13 ax-term: Add inline file preview for text files

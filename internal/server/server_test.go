@@ -39,7 +39,7 @@ func setupTestServer(t *testing.T) (*httptest.Server, *rsa.PrivateKey, func()) {
 	staticDir := os.DirFS(t.TempDir())
 
 	a := auth.NewWithSSHDir(sshDir)
-	srv := httptest.NewServer(New(a, staticDir, false))
+	srv := httptest.NewServer(New(a, staticDir, false, "bash"))
 
 	cleanup := func() {
 		srv.Close()

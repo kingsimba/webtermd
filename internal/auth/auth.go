@@ -2,7 +2,6 @@ package auth
 
 import (
 	"crypto/rand"
-	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
@@ -145,20 +144,17 @@ func (a *Authenticator) loadAuthorizedKeys() ([]sshPublicKey, error) {
 		switch block.Type {
 		case "RSA PUBLIC KEY":
 			pub, err := x509.ParsePKCS1PublicKey(block.Bytes)
-			if err != nil {
-				continue
+			if err == nil {
+				keys = append(keys, &rsaKey{pub: pub})
 			}
-			keys = append(keys, &rsaKey{pub: pub})
 		case "PUBLIC KEY":
 			pubRaw, err := x509.ParsePKIXPublicKey(block.Bytes)
 			if err != nil {
 				continue
 			}
-			pub, ok := pubRaw.(*rsa.PublicKey)
-			if !ok {
-				continue
+			if key, err := wrapPublicKey(pubRaw); err == nil {
+				keys = append(keys, key)
 			}
-			keys = append(keys, &rsaKey{pub: pub})
 		}
 	}
 

@@ -19,9 +19,9 @@ type Session struct {
 	closed chan struct{}
 }
 
-// New spawns a Bash PTY and returns a Session.
-func New() (*Session, error) {
-	cmd := exec.Command("bash")
+// New spawns a PTY attached to the given shell and returns a Session.
+func New(shell string) (*Session, error) {
+	cmd := exec.Command(shell)
 	cmd.Env = append(cmd.Environ(), "TERM=xterm-256color")
 
 	f, err := pty.Start(cmd)

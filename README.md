@@ -50,25 +50,27 @@ ax-term only authenticates the Node.js gateway — not end users. User managemen
 ## Usage
 
 ```
-./bin/ax-term [-addr <address>] [-static <dir>]
+./bin/ax-term [-addr <address>] [-shell <path>] [-static <dir>] [-no-auth]
 ```
 
-| Flag      | Default       | Description                                     |
-| --------- | ------------- | ----------------------------------------------- |
-| `-addr`   | `:8080`       | Listen address (e.g. `:3000`, `127.0.0.1:9090`) |
-| `-static` | auto-detected | Path to static files directory                  |
+| Flag       | Default       | Description                                     |
+| ---------- | ------------- | ----------------------------------------------- |
+| `-addr`    | `:8080`       | Listen address (e.g. `:3000`, `127.0.0.1:9090`) |
+| `-shell`   | `bash`        | Shell to spawn PTY sessions with                |
+| `-no-auth` | `false`       | Disable challenge-response authentication       |
+| `-static`  | auto-detected | Path to static files directory                  |
 
 ### Examples
 
 ```bash
-# Default port 8080
+# Default port 8080, bash shell
 ./bin/ax-term
 
 # Custom port
 ./bin/ax-term -addr :3000
 
-# Localhost only
-./bin/ax-term -addr 127.0.0.1:9090
+# ZSH shell on localhost
+./bin/ax-term -addr 127.0.0.1:9090 -shell zsh
 ```
 
 ## Development
