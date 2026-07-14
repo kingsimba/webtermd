@@ -103,7 +103,9 @@ func TestWebSocketAuthSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var body struct{ Nonce string `json:"nonce"` }
+	var body struct {
+		Nonce string `json:"nonce"`
+	}
 	json.NewDecoder(resp.Body).Decode(&body)
 	resp.Body.Close()
 
@@ -182,7 +184,9 @@ func TestWebSocketResize(t *testing.T) {
 	defer cleanup()
 
 	resp, _ := http.Get(srv.URL + "/api/challenge")
-	var body struct{ Nonce string `json:"nonce"` }
+	var body struct {
+		Nonce string `json:"nonce"`
+	}
 	json.NewDecoder(resp.Body).Decode(&body)
 	resp.Body.Close()
 
