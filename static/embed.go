@@ -4,5 +4,5 @@ import "embed"
 
 // FS contains the embedded static web assets.
 //
-//go:embed index.html
+//go:embed *
 var FS embed.FS

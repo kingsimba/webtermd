@@ -1,5 +1,6 @@
 # Changelog
 
+- 2026-07-17 webtermd: Embed xterm.js CSS and JS locally instead of loading from CDN
 - 2026-07-14 webtermd: Support Ed25519 and ECDSA keys in challenge-response auth
 - 2026-07-14 webtermd: Add --shell flag to override shell for PTY sessions
 - 2026-07-14 webtermd: Add rate limiting on challenge endpoint
