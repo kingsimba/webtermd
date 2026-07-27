@@ -164,7 +164,30 @@ Two message types flow over the same WebSocket:
 
 Binary messages are raw PTY I/O — they flow directly between xterm.js and the bash process.
 
-Text messages are JSON with a `type` field. They carry control-plane data (resize, CWD updates, file uploads).
+Text messages are JSON with a `type` field. They carry control-plane data (resize, CWD updates, file listings, downloads, previews).
+
+Upload operations (`upload-init`, `upload-commit`, `upload-status`, `upload-cancel`) are handled by the command channel — see `/ws/cmd` below.
+
+### WS /ws/cmd
+
+Dedicated command channel for upload operations. Does not spawn a PTY — handles upload lifecycle only.
+
+**Connection**
+
+```
+ws://host:port/ws/cmd?nonce=<base64>&signature=<base64>
+```
+
+| Parameter   | Description                         |
+| ----------- | ----------------------------------- |
+| `nonce`     | Challenge from `GET /api/challenge` |
+| `signature` | Nonce signed with the private key   |
+
+The same nonce+signature authenticates both `/ws` and `/ws/cmd`. The server extends the nonce TTL while either connection is alive.
+
+**Message format**: Text JSON only. No binary messages.
+
+**Control messages**: `upload-init`, `upload-commit`, `upload-status`, `upload-cancel` (Client→Server); `session` (with upload token), `upload-init`, `upload-done`, `upload-status`, `upload-error` (Server→Client).
 
 ---
 
@@ -182,22 +205,28 @@ Sent when the terminal window changes size.
 
 ##### upload-init
 
-Request a new upload. The server creates a temp file, returns an upload ID.
+Request a new upload. The server validates the target directory, creates a temp file, and returns an upload ID. This message is sent on the command channel (`/ws/cmd`), not the terminal WebSocket.
 
 ```json
-{ "type": "upload-init", "filename": "report.pdf", "size": 4194304 }
+{
+  "type": "upload-init",
+  "filename": "report.pdf",
+  "size": 4194304,
+  "dir": "/home/user/projects"
+}
 ```
 
-| Field      | Description              |
-| ---------- | ------------------------ |
-| `filename` | Original file name       |
-| `size`     | Total file size in bytes |
+| Field      | Description                     |
+| ---------- | ------------------------------- |
+| `filename` | Original file name              |
+| `size`     | Total file size in bytes        |
+| `dir`      | Target directory for the upload |
 
 Server responds with `upload-init`.
 
 ##### upload-commit
 
-Finalize a completed upload. The server moves the temp file to the target directory (CWD at init time).
+Finalize a completed upload. The server moves the temp file to the target directory (specified at `upload-init` time). Sent on the command channel (`/ws/cmd`).
 
 ```json
 { "type": "upload-commit", "id": "a1b2c3..." }
@@ -207,7 +236,7 @@ Server responds with `upload-done` or `upload-error`.
 
 ##### upload-status
 
-Query the server for an in-progress upload's state (used to resume after reconnect).
+Query the server for an in-progress upload's state (used to resume after reconnect). Sent on the command channel (`/ws/cmd`).
 
 ```json
 { "type": "upload-status", "id": "a1b2c3..." }
@@ -217,7 +246,7 @@ Server responds with `upload-status`.
 
 ##### upload-cancel
 
-Cancel and clean up an in-progress upload.
+Cancel and clean up an in-progress upload. Sent on the command channel (`/ws/cmd`).
 
 ```json
 { "type": "upload-cancel", "id": "a1b2c3..." }
@@ -271,9 +300,17 @@ This message is safe against network blips — the client only sends it when the
 
 #### Server → Client
 
-##### session
+##### session (terminal WS `/ws`)
 
-Sent immediately after WebSocket upgrade. Provides an upload token valid for this session.
+Sent immediately after terminal WebSocket upgrade. Contains no upload fields — upload tokens are provided by the command channel.
+
+```json
+{ "type": "session" }
+```
+
+##### session (command channel `/ws/cmd`)
+
+Sent immediately after command channel WebSocket upgrade. Provides an upload token valid for this session.
 
 ```json
 {
@@ -448,11 +485,12 @@ An error occurred reading the file for preview.
 ```
 Client                          Server
   │                                │
-  │  ws: upload-init               │
-  │  {"filename":"f.pdf","size":N} │
+  │  ws(/ws/cmd): upload-init      │
+  │  {"filename":"f.pdf","size":N, │
+  │   "dir":"/home/user"}          │
   │ ─────────────────────────────> │  creates temp file
   │                                │
-  │  ws: upload-init               │
+  │  ws(/ws/cmd): upload-init      │
   │  {"id":"abc","dir":"/home/.."} │
   │ <────────────────────────────  │
   │                                │
@@ -467,11 +505,11 @@ Client                          Server
   │ ─────────────────────────────> │  writes at offset 1M
   │       ... (repeat) ...         │
   │                                │
-  │  ws: upload-commit             │
+  │  ws(/ws/cmd): upload-commit    │
   │  {"id":"abc"}                  │
   │ ─────────────────────────────> │  moves temp → target dir
   │                                │
-  │  ws: upload-done               │
+  │  ws(/ws/cmd): upload-done      │
   │  {"id":"abc","filename":"f.pdf"}│
   │ <────────────────────────────  │
 ```
@@ -491,9 +529,12 @@ On startup, the server scans the upload directory for `.json` files and rebuilds
 
 1. Gateway fetches a challenge from `GET /api/challenge`
 2. Gateway signs the nonce with its private key
-3. Gateway opens `WS /ws?nonce=...&signature=...`
+3. Gateway opens `WS /ws?nonce=...&signature=...` (terminal session)
 4. webtermd verifies the signature, spawns a PTY shell
-5. Server sends `session` message with an upload token
-6. Gateway relays keystrokes and output between browser and webtermd
-7. Shell CWD changes are pushed to the client as `cwd` messages
-8. On disconnect, the PTY is terminated
+5. Server sends `session` message (no upload token)
+6. Gateway opens `WS /ws/cmd?nonce=...&signature=...` (command channel)
+7. Server sends `session` message with upload token
+8. Gateway relays keystrokes and output between browser and webtermd
+9. Upload operations flow through `/ws/cmd`
+10. Shell CWD changes are pushed to the client as `cwd` messages on `/ws`
+11. On disconnect, the PTY is terminated

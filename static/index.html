@@ -220,6 +220,7 @@
 
       // --- state ---
       var ws = null;
+      var wsCmd = null;
       var termDataDisposable = null;
       var termResizeDisposable = null;
       var uploadToken = '';
@@ -479,7 +480,7 @@
         var u = uploads[id];
         if (!u) return;
         if (u.xhr) { u.xhr.abort(); u.xhr = null; }
-        ws.send(JSON.stringify({ type: 'upload-cancel', id: id }));
+        wsCmd.send(JSON.stringify({ type: 'upload-cancel', id: id }));
         try { localStorage.removeItem('ax-upload-' + id); } catch (e) { }
         if (u.el && u.el.parentNode) u.el.parentNode.removeChild(u.el);
         delete uploads[id];
@@ -544,7 +545,7 @@
         var u = uploads[id];
         if (!u || u.paused) return;
         if (u.offset >= u.total) {
-          ws.send(JSON.stringify({ type: 'upload-commit', id: id }));
+          wsCmd.send(JSON.stringify({ type: 'upload-commit', id: id }));
           return;
         }
 
@@ -601,30 +602,17 @@
       }
 
       function uploadFile(file) {
-        if (!ws || ws.readyState !== WebSocket.OPEN) {
-          showError('Not connected');
+        if (!wsCmd || wsCmd.readyState !== WebSocket.OPEN) {
+          showError('Command channel not connected');
           return;
         }
         pendingUploads[file.name] = file;
-        ws.send(JSON.stringify({
+        wsCmd.send(JSON.stringify({
           type: 'upload-init',
           filename: file.name,
-          size: file.size
+          size: file.size,
+          dir: cwdPath.textContent
         }));
-      }
-
-      function resumeUploads() {
-        var keys = [];
-        for (var i = 0; i < localStorage.length; i++) {
-          var k = localStorage.key(i);
-          if (k && k.indexOf('ax-upload-') === 0) keys.push(k);
-        }
-        keys.forEach(function (k) {
-          try {
-            var id = k.replace('ax-upload-', '');
-            ws.send(JSON.stringify({ type: 'upload-status', id: id }));
-          } catch (e) { }
-        });
       }
 
       // --- drag and drop ---
@@ -665,6 +653,7 @@
         // Otherwise fetch a fresh challenge.
         if (signature && sigNonce) {
           openWS(sigNonce, signature);
+          connectCmd(sigNonce, signature);
           return;
         }
         fetch(basePath + '/api/challenge')
@@ -675,6 +664,7 @@
           .then(function (data) {
             sigNonce = data.nonce;
             openWS(sigNonce, signature || '');
+            connectCmd(sigNonce, signature || '');
           })
           .catch(function (err) {
             showError('Connection error: ' + err.message);
@@ -754,6 +744,68 @@
         };
       }
 
+      function connectCmd(nonce, sig) {
+        var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        var url = proto + '//' + location.host + basePath + '/ws/cmd?nonce=' + encodeURIComponent(nonce) + '&signature=' + encodeURIComponent(sig);
+        wsCmd = new WebSocket(url);
+
+        wsCmd.onopen = function () {
+          // command channel is ready
+        };
+
+        wsCmd.onmessage = function (ev) {
+          var msg = JSON.parse(ev.data);
+          switch (msg.type) {
+            case 'session':
+              uploadToken = msg.upload_token;
+              uploadPrefix = basePath + msg.upload_prefix;
+              // Resume interrupted uploads
+              for (var i = 0; i < localStorage.length; i++) {
+                var key = localStorage.key(i);
+                if (key.indexOf('ax-upload-') === 0) {
+                  var info = JSON.parse(localStorage[key]);
+                  wsCmd.send(JSON.stringify({ type: 'upload-status', id: info.id }));
+                }
+              }
+              break;
+
+            case 'upload-init':
+              var f = pendingUploads[msg.filename];
+              var total = f ? f.size : 0;
+              updateUpload(msg.id, msg.filename || '', 0, total);
+              if (f) {
+                delete pendingUploads[msg.filename];
+                startChunkedUpload(msg.id, f);
+              }
+              break;
+
+            case 'upload-error':
+              showError('Upload: ' + msg.message);
+              break;
+
+            case 'upload-done':
+              updateUpload(msg.id, msg.filename, msg.total, msg.total, true);
+              try { localStorage.removeItem('ax-upload-' + msg.id); } catch (e) { }
+              break;
+
+            case 'upload-status':
+              if (msg.exists) {
+                updateUpload(msg.id, msg.filename, msg.received, msg.total);
+              } else {
+                try { localStorage.removeItem('ax-upload-' + msg.id); } catch (e) { }
+              }
+              break;
+          }
+        };
+
+        wsCmd.onclose = function () {
+          setTimeout(function () {
+            var stored = JSON.parse(localStorage['ax-auth'] || '{}');
+            if (stored.nonce && stored.sig) connectCmd(stored.nonce, stored.sig);
+          }, 2000);
+        };
+      }
+
       function showSigDialog() {
         var cmd = "printf '%s' '" + sigNonce + "' | openssl dgst -sha256 -sign ~/.ssh/id_rsa | base64 -w0";
         document.getElementById('sig-cmd').textContent = cmd;
@@ -788,9 +840,6 @@
             var msg = JSON.parse(ev.data);
             switch (msg.type) {
               case 'session':
-                uploadToken = msg.upload_token;
-                uploadPrefix = basePath + msg.upload_prefix;
-                resumeUploads();
                 break;
 
               case 'cwd':
@@ -812,33 +861,6 @@
                 if (newAtShell !== isAtShell) {
                   isAtShell = newAtShell;
                   renderFiltered();
-                }
-                break;
-
-              case 'upload-init':
-                var f = pendingUploads[msg.filename];
-                var total = f ? f.size : 0;
-                updateUpload(msg.id, msg.filename || '', 0, total);
-                if (f) {
-                  delete pendingUploads[msg.filename];
-                  startChunkedUpload(msg.id, f);
-                }
-                break;
-
-              case 'upload-error':
-                showError('Upload: ' + msg.message);
-                break;
-
-              case 'upload-done':
-                updateUpload(msg.id, msg.filename, msg.total, msg.total, true);
-                try { localStorage.removeItem('ax-upload-' + msg.id); } catch (e) { }
-                break;
-
-              case 'upload-status':
-                if (msg.exists) {
-                  updateUpload(msg.id, msg.filename, msg.received, msg.total);
-                } else {
-                  try { localStorage.removeItem('ax-upload-' + msg.id); } catch (e) { }
                 }
                 break;
 
@@ -881,6 +903,7 @@
       if (savedAuth && savedAuth.nonce && savedAuth.sig) {
         sigNonce = savedAuth.nonce;
         openWS(savedAuth.nonce, savedAuth.sig);
+        connectCmd(savedAuth.nonce, savedAuth.sig);
       } else {
         connect();
       }

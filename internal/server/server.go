@@ -104,6 +104,7 @@ func New(a *auth.Authenticator, staticFS fs.FS, noAuth bool, shell string) *Serv
 
 	s.mux.HandleFunc("/api/challenge", s.handleChallenge)
 	s.mux.HandleFunc("/ws", s.handleWS)
+	s.mux.HandleFunc("/ws/cmd", s.handleCmdWS)
 	s.mux.HandleFunc("/api/upload/", s.handleUpload)
 	s.mux.HandleFunc("/api/download/", s.handleDownload)
 	s.mux.Handle("/", http.FileServerFS(staticFS))
@@ -483,6 +484,224 @@ func (s *Server) sendFileList(conn *wsConn, cwd string) {
 	})
 }
 
+// --- upload handler methods ---
+
+func (s *Server) handleUploadInit(conn *wsConn, msg []byte, token string) {
+	var init struct {
+		Filename string `json:"filename"`
+		Size     int64  `json:"size"`
+		Dir      string `json:"dir"`
+	}
+	if json.Unmarshal(msg, &init) != nil || init.Filename == "" || init.Size <= 0 {
+		s.wsSendJSON(conn, map[string]string{"type": "upload-error", "message": "invalid filename or size"})
+		return
+	}
+	if init.Dir == "" {
+		init.Dir = "/tmp"
+	}
+	if info, err := os.Stat(init.Dir); err != nil || !info.IsDir() {
+		s.wsSendJSON(conn, map[string]string{"type": "upload-error", "message": "invalid target directory"})
+		return
+	}
+	id := generateID()
+	tmpPath := filepath.Join(s.uploadDir, id+".download")
+	f, err := os.Create(tmpPath)
+	if err != nil {
+		s.wsSendJSON(conn, map[string]string{"type": "upload-error", "message": "cannot create temp file"})
+		return
+	}
+	f.Close()
+
+	e := &uploadEntry{
+		ID:        id,
+		Filename:  filepath.Base(init.Filename),
+		Size:      init.Size,
+		Token:     token,
+		Dir:       init.Dir,
+		TempPath:  tmpPath,
+		MetaPath:  s.metaPath(id),
+		ExpiresAt: time.Now().Add(30 * time.Minute),
+	}
+
+	s.uploadMu.Lock()
+	s.uploads[id] = e
+	s.uploadMu.Unlock()
+
+	s.saveMeta(e)
+
+	s.wsSendJSON(conn, map[string]interface{}{
+		"type":       "upload-init",
+		"id":         id,
+		"filename":   init.Filename,
+		"dir":        init.Dir,
+		"chunk_size": 1 << 20,
+	})
+}
+
+func (s *Server) handleUploadCommit(conn *wsConn, msg []byte, token string) {
+	var commit struct {
+		ID string `json:"id"`
+	}
+	if json.Unmarshal(msg, &commit) != nil || commit.ID == "" {
+		s.wsSendJSON(conn, map[string]string{"type": "upload-error", "message": "missing id"})
+		return
+	}
+
+	s.uploadMu.Lock()
+	e, ok := s.uploads[commit.ID]
+	if !ok || e.Token != token {
+		s.uploadMu.Unlock()
+		s.wsSendJSON(conn, map[string]string{"type": "upload-error", "message": "upload not found or unauthorized"})
+		return
+	}
+	delete(s.uploads, commit.ID)
+	s.uploadMu.Unlock()
+
+	if e.Received < e.Size {
+		os.Remove(e.TempPath)
+		os.Remove(e.MetaPath)
+		s.wsSendJSON(conn, map[string]string{"type": "upload-error", "message": "incomplete upload"})
+		return
+	}
+
+	dest := filepath.Join(e.Dir, e.Filename)
+	if err := os.Rename(e.TempPath, dest); err != nil {
+		os.Remove(e.TempPath)
+		os.Remove(e.MetaPath)
+		s.wsSendJSON(conn, map[string]string{"type": "upload-error", "message": "move to target: " + err.Error()})
+		return
+	}
+	os.Remove(e.MetaPath)
+
+	s.wsSendJSON(conn, map[string]interface{}{
+		"type":     "upload-done",
+		"id":       commit.ID,
+		"filename": e.Filename,
+		"path":     dest,
+	})
+}
+
+func (s *Server) handleUploadStatus(conn *wsConn, msg []byte, token string) {
+	var status struct {
+		ID string `json:"id"`
+	}
+	if json.Unmarshal(msg, &status) != nil || status.ID == "" {
+		return
+	}
+	s.uploadMu.Lock()
+	e, ok := s.uploads[status.ID]
+	if !ok {
+		s.uploadMu.Unlock()
+		s.wsSendJSON(conn, map[string]interface{}{"type": "upload-status", "id": status.ID, "exists": false})
+		return
+	}
+	if e.Token != token {
+		e.Token = token
+		s.saveMeta(e)
+	}
+	s.uploadMu.Unlock()
+	s.wsSendJSON(conn, map[string]interface{}{
+		"type":     "upload-status",
+		"id":       e.ID,
+		"filename": e.Filename,
+		"received": e.Received,
+		"total":    e.Size,
+		"exists":   true,
+	})
+}
+
+func (s *Server) handleUploadCancel(conn *wsConn, msg []byte, token string) {
+	var cancel struct {
+		ID string `json:"id"`
+	}
+	if json.Unmarshal(msg, &cancel) != nil || cancel.ID == "" {
+		return
+	}
+	s.uploadMu.Lock()
+	e, ok := s.uploads[cancel.ID]
+	if ok && e.Token == token {
+		os.Remove(e.TempPath)
+		os.Remove(e.MetaPath)
+		delete(s.uploads, cancel.ID)
+	}
+	s.uploadMu.Unlock()
+}
+
+func (s *Server) handleCmdWS(w http.ResponseWriter, r *http.Request) {
+	var wsNonce string
+	if !s.noAuth {
+		nonce := r.URL.Query().Get("nonce")
+		signature := r.URL.Query().Get("signature")
+		if nonce == "" || signature == "" {
+			http.Error(w, "missing nonce or signature", http.StatusBadRequest)
+			return
+		}
+		if !s.auth.Verify(nonce, signature) {
+			http.Error(w, "authentication failed", http.StatusUnauthorized)
+			return
+		}
+		wsNonce = nonce
+	}
+
+	rawConn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("websocket upgrade: %v", err)
+		return
+	}
+	conn := &wsConn{Conn: rawConn}
+	defer rawConn.Close()
+
+	if wsNonce != "" {
+		nonceStop := make(chan struct{})
+		defer close(nonceStop)
+		go func() {
+			ticker := time.NewTicker(1 * time.Minute)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-nonceStop:
+					return
+				case <-ticker.C:
+					s.auth.ExtendNonce(wsNonce)
+				}
+			}
+		}()
+	}
+
+	cmdToken := generateID()
+
+	s.wsSendJSON(conn, map[string]string{
+		"type":          "session",
+		"upload_token":  cmdToken,
+		"upload_prefix": "/api/upload/",
+	})
+
+	for {
+		_, msg, err := conn.ReadMessage()
+		if err != nil {
+			break
+		}
+
+		var ctrl struct {
+			Type string `json:"type"`
+		}
+		if json.Unmarshal(msg, &ctrl) != nil || ctrl.Type == "" {
+			continue
+		}
+
+		switch ctrl.Type {
+		case "upload-init":
+			s.handleUploadInit(conn, msg, cmdToken)
+		case "upload-commit":
+			s.handleUploadCommit(conn, msg, cmdToken)
+		case "upload-status":
+			s.handleUploadStatus(conn, msg, cmdToken)
+		case "upload-cancel":
+			s.handleUploadCancel(conn, msg, cmdToken)
+		}
+	}
+}
+
 func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	var wsNonce string
 	if !s.noAuth {
@@ -531,17 +750,12 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sessionToken := generateID()
-
 	s.mu.Lock()
 	s.activeSess[rawConn] = sess
 	s.mu.Unlock()
 
-	// Send session token for upload auth.
 	s.wsSendJSON(conn, map[string]string{
-		"type":          "session",
-		"upload_token":  sessionToken,
-		"upload_prefix": "/api/upload/",
+		"type": "session",
 	})
 
 	defer func() {
@@ -647,141 +861,6 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 				if info, err := os.Stat(rc.Path); err == nil && info.IsDir() {
 					sess.Write([]byte("cd " + rc.Path + "\n"))
 				}
-
-			case "upload-init":
-				var init struct {
-					Filename string `json:"filename"`
-					Size     int64  `json:"size"`
-				}
-				if json.Unmarshal(msg, &init) != nil || init.Filename == "" || init.Size <= 0 {
-					s.wsSendJSON(conn, map[string]string{"type": "upload-error", "message": "invalid filename or size"})
-					continue
-				}
-				cwd, _ := sess.GetCWD()
-				if cwd == "" {
-					cwd = "/tmp"
-				}
-				id := generateID()
-				tmpPath := filepath.Join(s.uploadDir, id+".download")
-				f, err := os.Create(tmpPath)
-				if err != nil {
-					s.wsSendJSON(conn, map[string]string{"type": "upload-error", "message": "cannot create temp file"})
-					continue
-				}
-				f.Close()
-
-				e := &uploadEntry{
-					ID:        id,
-					Filename:  filepath.Base(init.Filename),
-					Size:      init.Size,
-					Token:     sessionToken,
-					Dir:       cwd,
-					TempPath:  tmpPath,
-					MetaPath:  s.metaPath(id),
-					ExpiresAt: time.Now().Add(30 * time.Minute),
-				}
-
-				s.uploadMu.Lock()
-				s.uploads[id] = e
-				s.uploadMu.Unlock()
-
-				s.saveMeta(e)
-
-				s.wsSendJSON(conn, map[string]interface{}{
-					"type":       "upload-init",
-					"id":         id,
-					"filename":   init.Filename,
-					"dir":        cwd,
-					"chunk_size": 1 << 20, // 1MB
-				})
-
-			case "upload-commit":
-				var commit struct {
-					ID string `json:"id"`
-				}
-				if json.Unmarshal(msg, &commit) != nil || commit.ID == "" {
-					s.wsSendJSON(conn, map[string]string{"type": "upload-error", "message": "missing id"})
-					continue
-				}
-
-				s.uploadMu.Lock()
-				e, ok := s.uploads[commit.ID]
-				if !ok || e.Token != sessionToken {
-					s.uploadMu.Unlock()
-					s.wsSendJSON(conn, map[string]string{"type": "upload-error", "message": "upload not found or unauthorized"})
-					continue
-				}
-				delete(s.uploads, commit.ID)
-				s.uploadMu.Unlock()
-
-				if e.Received < e.Size {
-					os.Remove(e.TempPath)
-					os.Remove(e.MetaPath)
-					s.wsSendJSON(conn, map[string]string{"type": "upload-error", "message": "incomplete upload"})
-					continue
-				}
-
-				dest := filepath.Join(e.Dir, e.Filename)
-				if err := os.Rename(e.TempPath, dest); err != nil {
-					os.Remove(e.TempPath)
-					os.Remove(e.MetaPath)
-					s.wsSendJSON(conn, map[string]string{"type": "upload-error", "message": "move to target: " + err.Error()})
-					continue
-				}
-				os.Remove(e.MetaPath)
-
-				s.wsSendJSON(conn, map[string]interface{}{
-					"type":     "upload-done",
-					"id":       commit.ID,
-					"filename": e.Filename,
-					"path":     dest,
-				})
-
-			case "upload-status":
-				var status struct {
-					ID string `json:"id"`
-				}
-				if json.Unmarshal(msg, &status) != nil || status.ID == "" {
-					continue
-				}
-				s.uploadMu.Lock()
-				e, ok := s.uploads[status.ID]
-				if !ok {
-					s.uploadMu.Unlock()
-					s.wsSendJSON(conn, map[string]interface{}{"type": "upload-status", "id": status.ID, "exists": false})
-					continue
-				}
-				// Re-own recovered uploads to the new session token
-				// (server restart generates a new session token).
-				if e.Token != sessionToken {
-					e.Token = sessionToken
-					s.saveMeta(e)
-				}
-				s.uploadMu.Unlock()
-				s.wsSendJSON(conn, map[string]interface{}{
-					"type":     "upload-status",
-					"id":       e.ID,
-					"filename": e.Filename,
-					"received": e.Received,
-					"total":    e.Size,
-					"exists":   true,
-				})
-
-			case "upload-cancel":
-				var cancel struct {
-					ID string `json:"id"`
-				}
-				if json.Unmarshal(msg, &cancel) != nil || cancel.ID == "" {
-					continue
-				}
-				s.uploadMu.Lock()
-				e, ok := s.uploads[cancel.ID]
-				if ok && e.Token == sessionToken {
-					os.Remove(e.TempPath)
-					os.Remove(e.MetaPath)
-					delete(s.uploads, cancel.ID)
-				}
-				s.uploadMu.Unlock()
 
 			case "list-files":
 				cwd, _ := sess.GetCWD()
