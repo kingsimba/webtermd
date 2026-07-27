@@ -686,3 +686,110 @@ body {
     border-color: #d32f2f;
     color: #fff;
 }
+
+/* --- help popover --- */
+#help-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.65);
+    z-index: 250;
+    align-items: center;
+    justify-content: center;
+}
+
+#help-overlay.open {
+    display: flex;
+}
+
+#help-dialog {
+    background: #1e1e1e;
+    border: 1px solid #555;
+    border-radius: 6px;
+    max-width: 520px;
+    width: 90%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+#help-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 14px;
+    border-bottom: 1px solid #3c3c3c;
+    flex-shrink: 0;
+}
+
+#help-header span {
+    color: #e0e0e0;
+    font-family: monospace;
+    font-size: 14px;
+    font-weight: bold;
+}
+
+#help-close {
+    background: none;
+    border: 1px solid #555;
+    color: #ccc;
+    cursor: pointer;
+    font-size: 16px;
+    padding: 2px 8px;
+    border-radius: 3px;
+    line-height: 1;
+    flex-shrink: 0;
+    margin-left: 12px;
+}
+
+#help-close:hover {
+    background: #444;
+}
+
+#help-body {
+    padding: 14px;
+    overflow-y: auto;
+}
+
+#help-body table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: monospace;
+    font-size: 13px;
+}
+
+#help-body table td {
+    padding: 8px 6px;
+    border-bottom: 1px solid #333;
+    vertical-align: middle;
+}
+
+#help-body table tr:last-child td {
+    border-bottom: none;
+}
+
+#help-body table td:first-child {
+    color: #64b5f6;
+    white-space: nowrap;
+    padding-right: 16px;
+}
+
+#help-body table td:last-child {
+    color: #ccc;
+}
+
+#help-body kbd {
+    display: inline-block;
+    padding: 2px 6px;
+    margin: 0 2px;
+    background: #2d2d2d;
+    border: 1px solid #555;
+    border-radius: 3px;
+    font-family: monospace;
+    font-size: 11px;
+    color: #e0e0e0;
+    line-height: 1.4;
+}

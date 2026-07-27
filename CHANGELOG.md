@@ -1,5 +1,6 @@
 # Changelog
 
+- 2026-07-27 webtermd: Add help popover with keyboard shortcut reference
 - 2026-07-27 webtermd: Add multi-pane split terminal with hotkeys, per-pane file caching, and resize sync
 - 2026-07-17 webtermd: Embed xterm.js CSS and JS locally instead of loading from CDN
 - 2026-07-14 webtermd: Support Ed25519 and ECDSA keys in challenge-response auth
