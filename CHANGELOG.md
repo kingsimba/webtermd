@@ -1,5 +1,6 @@
 # Changelog
 
+- 2026-07-28 webtermd: Add clickable CWD breadcrumbs and fix filename click targets
 - 2026-07-28 webtermd: Use single-click for folder navigation and prevent drag-select from triggering clicks
 - 2026-07-28 webtermd: Replace preview icon with hyperlink on filename and add image preview support
 - 2026-07-27 webtermd: Highlight uploaded files in file list and add delete-file context menu

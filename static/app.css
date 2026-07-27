@@ -173,6 +173,19 @@ body {
     text-transform: uppercase;
 }
 
+#cwd-path .cwd-seg {
+    cursor: pointer;
+    text-decoration: underline;
+    text-decoration-color: rgba(139, 195, 74, 0.35);
+    text-underline-offset: 2px;
+    transition: color 0.1s, text-decoration-color 0.1s;
+}
+
+#cwd-path .cwd-seg:hover {
+    color: #b9f250;
+    text-decoration-color: #b9f250;
+}
+
 #sidebar-files {
     padding: 0 12px 10px 12px;
     flex: 1;

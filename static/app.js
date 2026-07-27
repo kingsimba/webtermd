@@ -920,7 +920,6 @@
         if (fp) {
             hostnameInline.textContent = fp.hostname ? fp.hostname + ':' : '';
             if (fp.cwd) {
-                cwdPath.textContent = fp.cwd;
                 cwdInline.textContent = fp.cwd;
                 cwdInline.title = fp.cwd;
             }
@@ -928,10 +927,51 @@
     }
 
     function setCWD(path) {
-        cwdPath.textContent = path;
+        buildClickablePath(cwdPath, path);
         cwdInline.textContent = path;
         cwdInline.title = path;
         updateToolbar();
+    }
+
+    function buildClickablePath(container, path) {
+        container.innerHTML = '';
+        if (!path || path === '-') {
+            container.textContent = path || '-';
+            return;
+        }
+        // Split into segments: "/" "home/" "simba/" ...
+        var parts = path.split('/');
+        if (parts[0] === '') {
+            // Absolute path — first segment is the root.
+            parts.shift();
+            var rootSpan = document.createElement('span');
+            rootSpan.className = 'cwd-seg';
+            rootSpan.textContent = '/';
+            rootSpan.addEventListener('click', function () {
+                cdTo('/');
+            });
+            container.appendChild(rootSpan);
+        }
+        for (var i = 0; i < parts.length; i++) {
+            if (parts[i] === '') continue;
+            var seg = document.createElement('span');
+            seg.className = 'cwd-seg';
+            seg.textContent = parts[i] + '/';
+            seg.addEventListener('click', (function (segments, idx) {
+                return function () {
+                    var target = '/' + segments.slice(0, idx + 1).join('/');
+                    cdTo(target);
+                };
+            })(parts, i));
+            container.appendChild(seg);
+        }
+    }
+
+    function cdTo(dir) {
+        var fp = getFocusedPane();
+        if (fp && fp.ws && fp.ws.readyState === WebSocket.OPEN) {
+            fp.ws.send('cd ' + dir + '\n');
+        }
     }
 
     // --- file list (per-pane, follows focus) ---
