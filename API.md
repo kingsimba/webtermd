@@ -205,7 +205,10 @@ Sent when the terminal window changes size.
 
 ##### upload-init
 
-Request a new upload. The server validates the target directory, creates a temp file, and returns an upload ID. This message is sent on the command channel (`/ws/cmd`), not the terminal WebSocket.
+Request a new upload. The server validates the target directory, checks write permission,
+creates a `<filename>.downloading` file in the target directory and preallocates disk space,
+then returns an upload ID. This message is sent on the command channel (`/ws/cmd`),
+not the terminal WebSocket.
 
 ```json
 {
@@ -226,7 +229,8 @@ Server responds with `upload-init`.
 
 ##### upload-commit
 
-Finalize a completed upload. The server moves the temp file to the target directory (specified at `upload-init` time). Sent on the command channel (`/ws/cmd`).
+Finalize a completed upload. The server renames `<filename>.downloading` to `<filename>`
+in the target directory (same filesystem, instant rename). Sent on the command channel (`/ws/cmd`).
 
 ```json
 { "type": "upload-commit", "id": "a1b2c3..." }
@@ -390,7 +394,18 @@ Response to an `upload-status` query. `exists` is `false` if the upload was not 
 
 ##### upload-error
 
-An error occurred during upload.
+An error occurred during upload. Possible messages:
+
+| Message                                   | When                                    |
+| ----------------------------------------- | --------------------------------------- |
+| `invalid filename or size`                | `upload-init` with empty/bad params     |
+| `invalid target directory`                | `upload-init` dir doesn't exist         |
+| `no write permission to target directory` | `upload-init` dir isn't writable        |
+| `cannot create temp file`                 | `upload-init` temp file creation failed |
+| `insufficient disk space`                 | `upload-init` preallocation failed      |
+| `upload not found or unauthorized`        | `upload-commit` with bad id/token       |
+| `incomplete upload`                       | `upload-commit` received < size         |
+| `move to target: ...`                     | `upload-commit` rename to dest failed   |
 
 ```json
 { "type": "upload-error", "message": "incomplete upload" }

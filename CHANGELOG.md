@@ -1,5 +1,6 @@
 # Changelog
 
+- 2026-07-27 webtermd: Preallocate disk space and check write permission during upload init
 - 2026-07-27 webtermd: Show device hostname in browser title and toolbar
 - 2026-07-27 webtermd: Add terminal-style SVG favicon
 - 2026-07-27 webtermd: Support JetBrains Mono font if available

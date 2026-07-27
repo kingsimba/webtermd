@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"webtermd/internal/auth"
@@ -197,6 +198,30 @@ func (s *Server) saveMeta(e *uploadEntry) {
 	os.WriteFile(e.MetaPath, data, 0600)
 }
 
+// canWriteToDir checks whether the current process can create files in dir.
+func canWriteToDir(dir string) bool {
+	f, err := os.CreateTemp(dir, ".webtermd-writecheck-*")
+	if err != nil {
+		return false
+	}
+	f.Close()
+	os.Remove(f.Name())
+	return true
+}
+
+// preallocateFile reserves disk blocks for f up to size bytes.
+// Uses fallocate on Linux; falls back to Truncate which creates a sparse file.
+func preallocateFile(f *os.File, size int64) error {
+	// Try fallocate (Linux) for real block allocation.
+	err := syscall.Fallocate(int(f.Fd()), 0, 0, size)
+	if err == nil {
+		return nil
+	}
+	// Fall back to Truncate — sparse, but still catches some space issues
+	// and ensures the inode has the right size.
+	return f.Truncate(size)
+}
+
 func (s *Server) recoverUploads() {
 	entries, err := filepath.Glob(filepath.Join(s.uploadDir, "*.json"))
 	if err != nil {
@@ -215,11 +240,11 @@ func (s *Server) recoverUploads() {
 		// Skip expired entries.
 		if now.After(e.ExpiresAt) {
 			os.Remove(mp)
-			os.Remove(filepath.Join(s.uploadDir, e.ID+".download"))
+			os.Remove(filepath.Join(e.Dir, e.Filename+".downloading"))
 			continue
 		}
 		e.MetaPath = mp
-		e.TempPath = filepath.Join(s.uploadDir, e.ID+".download")
+		e.TempPath = filepath.Join(e.Dir, e.Filename+".downloading")
 		s.uploads[e.ID] = &e
 	}
 }
@@ -503,22 +528,35 @@ func (s *Server) handleUploadInit(conn *wsConn, msg []byte, token string) {
 		s.wsSendJSON(conn, map[string]string{"type": "upload-error", "message": "invalid target directory"})
 		return
 	}
+	// Verify write access to the destination directory.
+	if !canWriteToDir(init.Dir) {
+		s.wsSendJSON(conn, map[string]string{"type": "upload-error", "message": "no write permission to target directory"})
+		return
+	}
 	id := generateID()
-	tmpPath := filepath.Join(s.uploadDir, id+".download")
-	f, err := os.Create(tmpPath)
+	filename := filepath.Base(init.Filename)
+	dstPath := filepath.Join(init.Dir, filename+".downloading")
+	f, err := os.Create(dstPath)
 	if err != nil {
 		s.wsSendJSON(conn, map[string]string{"type": "upload-error", "message": "cannot create temp file"})
+		return
+	}
+	// Preallocate disk space so we fail early on insufficient space.
+	if err := preallocateFile(f, init.Size); err != nil {
+		f.Close()
+		os.Remove(dstPath)
+		s.wsSendJSON(conn, map[string]string{"type": "upload-error", "message": "insufficient disk space"})
 		return
 	}
 	f.Close()
 
 	e := &uploadEntry{
 		ID:        id,
-		Filename:  filepath.Base(init.Filename),
+		Filename:  filename,
 		Size:      init.Size,
 		Token:     token,
 		Dir:       init.Dir,
-		TempPath:  tmpPath,
+		TempPath:  dstPath,
 		MetaPath:  s.metaPath(id),
 		ExpiresAt: time.Now().Add(30 * time.Minute),
 	}
