@@ -9,6 +9,8 @@
 
 </div>
 
+![](./docs/screenshot.png)
+
 ![](./docs/screen-record.gif)
 
 ## Quick Start
@@ -42,6 +44,12 @@ webtermd runs as a specific Linux user (e.g. via systemd `User=`). It reads that
 - **Full terminal emulation** — built on xterm.js with ANSI color, tab completion, and window resize support
 - **Native copy & paste** — `Ctrl+C` and `Ctrl+V` work naturally, no need for `Ctrl+Shift+C` / `Ctrl+Shift+V`
 - **Real interactive shell** — PTY-backed sessions support `cd`, `vim`, and other stateful commands
+- **Multi-pane split screen** — split the terminal into multiple independent panes, each with its own shell session, directory, and scrollback
+  - **Split right** — `Alt+Shift+D` or click the ⊞ button in the pane's top-right corner
+  - **Split down** — `Alt+Shift+-` or click the ⊟ button in the pane's top-right corner
+  - **Navigate** — `Alt+Arrow` to move focus between panes
+  - **Resize** — `Alt+Shift+Arrow` or drag the split handle between panes
+  - **Close pane** — `Ctrl+Shift+W` or `Ctrl+Q`, or click the ✕ button
 - **Single static binary** — cross-compiles to a self-contained binary for amd64 or arm64 with minimal footprint
 
 ### File Manager
