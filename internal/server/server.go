@@ -665,6 +665,39 @@ func (s *Server) handleUploadCancel(conn *wsConn, msg []byte, token string) {
 	s.uploadMu.Unlock()
 }
 
+func (s *Server) handleDeleteFile(conn *wsConn, msg []byte, token string) {
+	var req struct {
+		Path string `json:"path"`
+	}
+	if json.Unmarshal(msg, &req) != nil || req.Path == "" {
+		s.wsSendJSON(conn, map[string]string{"type": "upload-error", "message": "missing path"})
+		return
+	}
+	// Safety: only allow absolute paths, no traversal.
+	clean := filepath.Clean(req.Path)
+	if !filepath.IsAbs(clean) {
+		s.wsSendJSON(conn, map[string]string{"type": "upload-error", "message": "path must be absolute"})
+		return
+	}
+	info, err := os.Stat(clean)
+	if err != nil {
+		s.wsSendJSON(conn, map[string]string{"type": "upload-error", "message": "file not found: " + err.Error()})
+		return
+	}
+	if info.IsDir() {
+		s.wsSendJSON(conn, map[string]string{"type": "upload-error", "message": "cannot delete a directory"})
+		return
+	}
+	if err := os.Remove(clean); err != nil {
+		s.wsSendJSON(conn, map[string]string{"type": "upload-error", "message": "delete failed: " + err.Error()})
+		return
+	}
+	s.wsSendJSON(conn, map[string]interface{}{
+		"type": "file-deleted",
+		"path": clean,
+	})
+}
+
 func (s *Server) handleCmdWS(w http.ResponseWriter, r *http.Request) {
 	var wsNonce string
 	if !s.noAuth {
@@ -736,6 +769,8 @@ func (s *Server) handleCmdWS(w http.ResponseWriter, r *http.Request) {
 			s.handleUploadStatus(conn, msg, cmdToken)
 		case "upload-cancel":
 			s.handleUploadCancel(conn, msg, cmdToken)
+		case "delete-file":
+			s.handleDeleteFile(conn, msg, cmdToken)
 		}
 	}
 }

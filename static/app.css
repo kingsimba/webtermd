@@ -258,6 +258,31 @@ body {
     background: #555;
 }
 
+#sidebar-uploads-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 12px 6px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #ccc;
+}
+
+#sidebar-uploads-header button {
+    background: #3c3c3c;
+    border: none;
+    color: #999;
+    cursor: pointer;
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 3px;
+}
+
+#sidebar-uploads-header button:hover {
+    background: #d32f2f;
+    color: #fff;
+}
+
 #sidebar-uploads {
     padding: 10px 12px;
     overflow-y: auto;
@@ -342,6 +367,52 @@ body {
 #sidebar-uploads .item.done .actions,
 #sidebar-uploads .item.cancelled .actions {
     display: none;
+}
+
+#sidebar-uploads .item.history .name {
+    opacity: 0.7;
+}
+
+#sidebar-uploads .item.history .bar-fill {
+    background: #8bc34a;
+    width: 100%;
+}
+
+#sidebar-uploads .item.done .bar-fill {
+    width: 100%;
+}
+
+/* --- upload context menu --- */
+#upload-ctx-menu {
+    position: fixed;
+    z-index: 9999;
+    background: #2b2b2b;
+    border: 1px solid #555;
+    border-radius: 4px;
+    padding: 4px 0;
+    min-width: 180px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+
+#upload-ctx-menu .ctx-item {
+    padding: 6px 16px;
+    font-size: 12px;
+    color: #ccc;
+    cursor: pointer;
+}
+
+#upload-ctx-menu .ctx-item:hover {
+    background: #4caf50;
+    color: #fff;
+}
+
+#upload-ctx-menu .ctx-item.ctx-danger {
+    color: #f44336;
+}
+
+#upload-ctx-menu .ctx-item.ctx-danger:hover {
+    background: #f44336;
+    color: #fff;
 }
 
 /* --- drop zone --- */

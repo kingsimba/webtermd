@@ -31,6 +31,13 @@
         setTimeout(function () { fitFocusedPane(); }, 250);
     });
 
+    var clearUploadsBtn = document.getElementById('clear-uploads');
+    if (clearUploadsBtn) {
+        clearUploadsBtn.addEventListener('click', function () {
+            clearHistory();
+        });
+    }
+
     // --- clipboard sink (for plain-HTTP contexts) ---
     var hasClipboardAPI = !!(navigator.clipboard && navigator.clipboard.readText);
 
@@ -1117,12 +1124,21 @@
         if (done) {
             u.el.classList.add('done');
             u.el.classList.remove('error', 'paused');
-            statusEl.textContent = 'Done';
-            setTimeout(function () {
-                if (u.el && u.el.parentNode) u.el.parentNode.removeChild(u.el);
-                delete uploads[id];
-                showEmptyHint();
-            }, 3000);
+            statusEl.textContent = 'Done — ' + formatSize(received);
+            u.el.querySelector('.actions').innerHTML = '';
+            // Context menu on done items
+            u.el.addEventListener('contextmenu', function (e) {
+                e.preventDefault();
+                showUploadContextMenu(e.clientX, e.clientY, id, u.filename, u.path);
+            });
+            // Save to localStorage history
+            saveHistory({
+                id: id,
+                filename: u.filename,
+                size: u.total,
+                time: new Date().toLocaleString(),
+                path: u.path
+            });
         } else if (error) {
             u.el.classList.add('error');
             u.el.classList.remove('done', 'paused');
@@ -1170,6 +1186,130 @@
         if (bytes < 1024) return bytes + ' B';
         if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
         return (bytes / 1048576).toFixed(1) + ' MB';
+    }
+
+    // --- upload history (localStorage) ---
+    var HISTORY_KEY = 'webtermd-uploads-' + location.hostname;
+    var MAX_HISTORY = 99;
+
+    function loadHistory() {
+        var history = [];
+        try {
+            history = JSON.parse(localStorage[HISTORY_KEY] || '[]');
+        } catch (e) { }
+        for (var i = 0; i < history.length; i++) {
+            renderHistoryItem(history[i]);
+        }
+    }
+
+    function saveHistory(entry) {
+        var history = [];
+        try {
+            history = JSON.parse(localStorage[HISTORY_KEY] || '[]');
+        } catch (e) { }
+        history.unshift(entry);
+        if (history.length > MAX_HISTORY) {
+            history = history.slice(0, MAX_HISTORY);
+        }
+        try {
+            localStorage[HISTORY_KEY] = JSON.stringify(history);
+        } catch (e) { }
+    }
+
+    function deleteHistory(id) {
+        var history = [];
+        try {
+            history = JSON.parse(localStorage[HISTORY_KEY] || '[]');
+        } catch (e) { }
+        history = history.filter(function (h) { return h.id !== id; });
+        try {
+            localStorage[HISTORY_KEY] = JSON.stringify(history);
+        } catch (e) { }
+    }
+
+    function clearHistory() {
+        localStorage.removeItem(HISTORY_KEY);
+        var items = uploadsList.querySelectorAll('.history');
+        for (var i = 0; i < items.length; i++) {
+            items[i].parentNode.removeChild(items[i]);
+        }
+        showEmptyHint();
+    }
+
+    function renderHistoryItem(entry) {
+        // skip if already rendered
+        if (uploads[entry.id]) return;
+        hideEmptyHint();
+        var el = document.createElement('div');
+        el.className = 'item history';
+        el.innerHTML =
+            '<span class="name">' + escapeHtml(entry.filename) + '</span>' +
+            '<div class="bar"><div class="bar-fill"></div></div>' +
+            '<span class="status-text">' + formatSize(entry.size) + ' — ' + entry.time + '</span>' +
+            '<div class="actions"></div>';
+        uploadsList.appendChild(el);
+
+        var u = { el: el, filename: entry.filename, received: entry.size, total: entry.size, path: entry.path };
+        uploads[entry.id] = u;
+
+        el.addEventListener('contextmenu', function (e) {
+            e.preventDefault();
+            showUploadContextMenu(e.clientX, e.clientY, entry.id, entry.filename, entry.path);
+        });
+    }
+
+    function escapeHtml(str) {
+        var div = document.createElement('div');
+        div.appendChild(document.createTextNode(str));
+        return div.innerHTML;
+    }
+
+    // --- upload context menu ---
+    var ctxMenu = null;
+
+    function ensureCtxMenu() {
+        if (ctxMenu) return;
+        ctxMenu = document.createElement('div');
+        ctxMenu.id = 'upload-ctx-menu';
+        ctxMenu.style.display = 'none';
+        document.body.appendChild(ctxMenu);
+        document.addEventListener('click', function () {
+            if (ctxMenu) ctxMenu.style.display = 'none';
+        });
+    }
+
+    function showUploadContextMenu(x, y, id, filename, path) {
+        ensureCtxMenu();
+        ctxMenu.style.display = 'block';
+        ctxMenu.style.left = x + 'px';
+        ctxMenu.style.top = y + 'px';
+        ctxMenu.innerHTML =
+            '<div class="ctx-item" data-action="remove">Remove from history</div>' +
+            (path ? '<div class="ctx-item ctx-danger" data-action="delete">Delete file</div>' : '');
+
+        var items = ctxMenu.querySelectorAll('.ctx-item');
+        for (var i = 0; i < items.length; i++) {
+            items[i].onclick = function () {
+                var action = this.getAttribute('data-action');
+                ctxMenu.style.display = 'none';
+                if (action === 'remove') {
+                    removeUploadFromUI(id);
+                } else if (action === 'delete' && wsCmd && wsCmd.readyState === WebSocket.OPEN) {
+                    wsCmd.send(JSON.stringify({ type: 'delete-file', path: path }));
+                    removeUploadFromUI(id);
+                }
+            };
+        }
+    }
+
+    function removeUploadFromUI(id) {
+        deleteHistory(id);
+        var u = uploads[id];
+        if (u && u.el && u.el.parentNode) {
+            u.el.parentNode.removeChild(u.el);
+        }
+        delete uploads[id];
+        showEmptyHint();
     }
 
     // --- preview ---
@@ -1369,6 +1509,7 @@
                 case 'session':
                     uploadToken = msg.upload_token;
                     uploadPrefix = basePath + msg.upload_prefix;
+                    loadHistory();
                     for (var i = 0; i < localStorage.length; i++) {
                         var key = localStorage.key(i);
                         if (key.indexOf('ax-upload-') === 0) {
@@ -1393,7 +1534,10 @@
                     break;
 
                 case 'upload-done':
-                    updateUpload(msg.id, msg.filename, msg.total, msg.total, true);
+                    var du = uploads[msg.id];
+                    var dtotal = du ? du.total : 0;
+                    if (du) du.path = msg.path;
+                    updateUpload(msg.id, msg.filename, dtotal, dtotal, true);
                     try { localStorage.removeItem('ax-upload-' + msg.id); } catch (e) { }
                     break;
 

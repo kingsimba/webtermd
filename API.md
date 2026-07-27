@@ -187,7 +187,7 @@ The same nonce+signature authenticates both `/ws` and `/ws/cmd`. The server exte
 
 **Message format**: Text JSON only. No binary messages.
 
-**Control messages**: `upload-init`, `upload-commit`, `upload-status`, `upload-cancel` (Client→Server); `session` (with upload token), `upload-init`, `upload-done`, `upload-status`, `upload-error` (Server→Client).
+**Control messages**: `upload-init`, `upload-commit`, `upload-status`, `upload-cancel`, `delete-file` (Client→Server); `session` (with upload token), `upload-init`, `upload-done`, `upload-status`, `upload-error`, `file-deleted` (Server→Client).
 
 ---
 
@@ -255,6 +255,21 @@ Cancel and clean up an in-progress upload. Sent on the command channel (`/ws/cmd
 ```json
 { "type": "upload-cancel", "id": "a1b2c3..." }
 ```
+
+##### delete-file
+
+Delete an uploaded file from disk. Only accepts absolute paths, rejects directories.
+Sent on the command channel (`/ws/cmd`).
+
+```json
+{ "type": "delete-file", "path": "/home/user/projects/report.pdf" }
+```
+
+| Field  | Description                         |
+| ------ | ----------------------------------- |
+| `path` | Absolute path to the file to delete |
+
+Server responds with `file-deleted` or `upload-error`.
 
 ##### list-files
 
@@ -409,6 +424,14 @@ An error occurred during upload. Possible messages:
 
 ```json
 { "type": "upload-error", "message": "incomplete upload" }
+```
+
+##### file-deleted
+
+Response to `delete-file`. The file was successfully removed from disk.
+
+```json
+{ "type": "file-deleted", "path": "/home/user/projects/report.pdf" }
 ```
 
 ##### file-list
