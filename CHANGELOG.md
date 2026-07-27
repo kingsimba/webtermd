@@ -1,6 +1,6 @@
 # Changelog
 
-- 2026-07-27 webtermd: Move download button to file context menu and highlight selected file
+- 2026-07-28 webtermd: Replace preview icon with hyperlink on filename and add image preview support
 - 2026-07-27 webtermd: Highlight uploaded files in file list and add delete-file context menu
 - 2026-07-27 webtermd: Add upload history with per-device localStorage persistence and file deletion
 - 2026-07-27 webtermd: Preallocate disk space and check write permission during upload init

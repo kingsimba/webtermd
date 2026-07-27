@@ -329,7 +329,11 @@
                         break;
 
                     case 'preview-content':
-                        openPreview(msg.path, msg.content);
+                        openPreview(msg.path, { type: 'text', content: msg.content });
+                        break;
+
+                    case 'preview-image':
+                        openPreview(msg.path, { type: 'image', url: basePath + msg.url });
                         break;
 
                     case 'preview-error':
@@ -1034,11 +1038,18 @@
                 });
 
                 if (isPreviewable(f.name)) {
-                    var pvBtn = document.createElement('button');
-                    pvBtn.className = 'btn-dl';
-                    pvBtn.textContent = '👁';
-                    pvBtn.title = 'Preview ' + f.name;
-                    pvBtn.addEventListener('click', function () {
+                    name.classList.add('preview-link');
+                    name.title = 'Preview ' + f.name;
+                    var downX = 0, downY = 0;
+                    name.addEventListener('pointerdown', function (e) {
+                        downX = e.clientX;
+                        downY = e.clientY;
+                    });
+                    name.addEventListener('click', function (e) {
+                        var dx = e.clientX - downX;
+                        var dy = e.clientY - downY;
+                        if (dx * dx + dy * dy > 9) return; // ignore drag-select
+                        e.stopPropagation();
                         var f3 = getFocusedPane();
                         if (!f3 || !f3.ws || f3.ws.readyState !== WebSocket.OPEN) {
                             showError('Not connected');
@@ -1046,7 +1057,6 @@
                         }
                         f3.ws.send(JSON.stringify({ type: 'preview', path: f.name }));
                     });
-                    item.appendChild(pvBtn);
                 }
 
             }
@@ -1392,7 +1402,8 @@
         'go': 1, 'rs': 1, 'c': 1, 'cpp': 1, 'h': 1, 'hpp': 1, 'java': 1, 'rb': 1,
         'php': 1, 'sql': 1, 'lua': 1, 'vim': 1, 'diff': 1, 'patch': 1,
         'csv': 1, 'tsv': 1, 'properties': 1, 'cmake': 1, 'gradle': 1,
-        'editorconfig': 1, 'gitignore': 1, 'dockerignore': 1
+        'editorconfig': 1, 'gitignore': 1, 'dockerignore': 1,
+        'png': 1, 'jpg': 1, 'jpeg': 1, 'gif': 1, 'webp': 1, 'svg': 1, 'bmp': 1, 'ico': 1
     };
 
     var previewNameSet = {
@@ -1410,7 +1421,9 @@
 
     var previewModal = document.getElementById('preview-modal');
     var previewTitle = document.getElementById('preview-title');
-    var previewBody = document.getElementById('preview-body').querySelector('pre');
+    var previewBody = document.getElementById('preview-body');
+    var previewText = previewBody.querySelector('pre');
+    var previewImg = document.getElementById('preview-img');
 
     document.getElementById('preview-close').addEventListener('click', function () {
         previewModal.classList.remove('open');
@@ -1432,10 +1445,17 @@
         }
     });
 
-    function openPreview(name, content) {
+    function openPreview(name, data) {
         previewTitle.textContent = name;
-        previewBody.textContent = content || '(empty)';
-        previewBody.className = content ? '' : 'empty';
+        previewText.style.display = 'none';
+        previewImg.style.display = 'none';
+        if (data && data.type === 'image') {
+            previewImg.src = data.url;
+            previewImg.style.display = 'block';
+        } else {
+            previewText.textContent = (data && data.content) || '(empty)';
+            previewText.style.display = 'block';
+        }
         previewModal.classList.add('open');
     }
 

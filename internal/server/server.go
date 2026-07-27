@@ -186,6 +186,15 @@ func generateID() string {
 	return hex.EncodeToString(b)
 }
 
+var imageExts = map[string]bool{
+	".png": true, ".jpg": true, ".jpeg": true, ".gif": true,
+	".webp": true, ".svg": true, ".bmp": true, ".ico": true,
+}
+
+func isImageExt(ext string) bool {
+	return imageExts[strings.ToLower(ext)]
+}
+
 func (s *Server) metaPath(id string) string {
 	return filepath.Join(s.uploadDir, id+".json")
 }
@@ -1001,6 +1010,23 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 				info, err := os.Stat(resolved)
 				if err != nil || info.IsDir() {
 					s.wsSendJSON(conn, map[string]string{"type": "preview-error", "message": "file not found or is a directory"})
+					continue
+				}
+				// Image files: generate a download token so the client can render via <img>.
+				if isImageExt(filepath.Ext(resolved)) {
+					token := generateID()
+					s.downloadMu.Lock()
+					s.downloadTokens[token] = &downloadEntry{
+						Path:      resolved,
+						Filename:  filepath.Base(resolved),
+						ExpiresAt: time.Now().Add(10 * time.Minute),
+					}
+					s.downloadMu.Unlock()
+					s.wsSendJSON(conn, map[string]interface{}{
+						"type": "preview-image",
+						"path": pv.Path,
+						"url":  "/api/download/" + token,
+					})
 					continue
 				}
 				const maxPreview = 128 << 10 // 128 KiB

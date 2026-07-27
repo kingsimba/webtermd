@@ -293,13 +293,13 @@ Server responds with `download-ready` or `download-error`.
 
 ##### preview
 
-Request a preview of a text file relative to the current working directory. The server reads the file and returns its content inline. Files larger than 128 KiB are rejected.
+Request a preview of a file relative to the current working directory. For text files, the server reads the file and returns its content inline. Files larger than 128 KiB are rejected. For image files (png, jpg, jpeg, gif, webp, svg, bmp, ico), the server generates a one-time download URL.
 
 ```json
 { "type": "preview", "path": "config.ini" }
 ```
 
-Server responds with `preview-content` or `preview-error`.
+Server responds with `preview-content`, `preview-image`, or `preview-error`.
 
 ##### restore-cwd
 
@@ -507,6 +507,23 @@ Response to `preview`. Contains the file content.
 | --------- | ----------------------------- |
 | `path`    | Requested file path           |
 | `content` | Full file content as a string |
+
+##### preview-image
+
+Response to `preview` for image files. Contains a one-time download URL that the client can render in an `<img>` tag.
+
+```json
+{
+  "type": "preview-image",
+  "path": "screenshot.png",
+  "url": "/api/download/a1b2c3d4e5f6..."
+}
+```
+
+| Field  | Description           |
+| ------ | --------------------- |
+| `path` | Requested file path   |
+| `url`  | One-time download URL |
 
 ##### preview-error
 
