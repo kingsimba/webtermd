@@ -18,6 +18,21 @@
         setTimeout(function () { status.style.display = 'none'; }, 5000);
     }
 
+    // Attach a click handler that ignores drag-select (pointer moved > 3 px).
+    function makeDragSafeClick(el, fn) {
+        var downX = 0, downY = 0;
+        el.addEventListener('pointerdown', function (e) {
+            downX = e.clientX;
+            downY = e.clientY;
+        });
+        el.addEventListener('click', function (e) {
+            var dx = e.clientX - downX;
+            var dy = e.clientY - downY;
+            if (dx * dx + dy * dy > 9) return;
+            fn(e);
+        });
+    }
+
     // --- sidebar toggle ---
     var sidebarVisible = true;
     toggleBtn.addEventListener('click', function () {
@@ -971,12 +986,15 @@
             dotDot.className = 'file-item';
             var ddName = document.createElement('span');
             var isShell = fp ? fp.isAtShell : true;
-            ddName.className = 'name is-dir' + (isShell ? ' clickable' : '');
-            ddName.textContent = '../';
-            ddName.title = '..';
+            ddName.className = 'name is-dir';
             dotDot.appendChild(ddName);
+            var ddText = document.createElement('span');
+            ddText.className = 'name-text' + (isShell ? ' clickable' : '');
+            ddText.textContent = '../';
+            ddText.title = '..';
+            ddName.appendChild(ddText);
             if (isShell) {
-                dotDot.addEventListener('dblclick', function () {
+                makeDragSafeClick(ddText, function () {
                     var f = getFocusedPane();
                     if (f && f.ws && f.ws.readyState === WebSocket.OPEN) {
                         f.ws.send('cd ..\n');
@@ -1002,18 +1020,19 @@
             }
 
             var name = document.createElement('span');
-            var dirClass = f.isDir ? ' is-dir' : '';
+            name.className = 'name' + (f.isDir ? ' is-dir' : '');
+            var nameText = document.createElement('span');
             var fp2 = getFocusedPane();
-            if (f.isDir && fp2 && fp2.isAtShell) {
-                dirClass += ' clickable';
-            }
-            name.className = 'name' + dirClass;
-            name.textContent = f.name + (f.isDir ? '/' : '');
-            name.title = f.name;
+            var clickable = f.isDir && fp2 && fp2.isAtShell;
+            var previewable = !f.isDir && isPreviewable(f.name);
+            nameText.className = 'name-text' + (clickable ? ' clickable' : '') + (previewable ? ' preview-link' : '');
+            nameText.textContent = f.name + (f.isDir ? '/' : '');
+            nameText.title = f.name;
+            name.appendChild(nameText);
             item.appendChild(name);
 
             if (f.isDir) {
-                item.addEventListener('dblclick', function () {
+                makeDragSafeClick(nameText, function () {
                     var f2 = getFocusedPane();
                     if (f2 && f2.ws && f2.ws.readyState === WebSocket.OPEN) {
                         f2.ws.send('cd ' + f.name + '\n');
@@ -1037,18 +1056,9 @@
                     showFileContextMenu(e.clientX, e.clientY, f.name, absPath, item);
                 });
 
-                if (isPreviewable(f.name)) {
-                    name.classList.add('preview-link');
-                    name.title = 'Preview ' + f.name;
-                    var downX = 0, downY = 0;
-                    name.addEventListener('pointerdown', function (e) {
-                        downX = e.clientX;
-                        downY = e.clientY;
-                    });
-                    name.addEventListener('click', function (e) {
-                        var dx = e.clientX - downX;
-                        var dy = e.clientY - downY;
-                        if (dx * dx + dy * dy > 9) return; // ignore drag-select
+                if (previewable) {
+                    nameText.title = 'Preview ' + f.name;
+                    makeDragSafeClick(nameText, function (e) {
                         e.stopPropagation();
                         var f3 = getFocusedPane();
                         if (!f3 || !f3.ws || f3.ws.readyState !== WebSocket.OPEN) {
