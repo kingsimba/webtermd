@@ -988,9 +988,14 @@
             }
             return;
         }
+        var uploadPaths = getUploadListPaths();
+        var fcwd = cwd.replace(/\/$/, '');
         filtered.forEach(function (f) {
             var item = document.createElement('div');
             item.className = 'file-item';
+            if (!f.isDir && uploadPaths[fcwd + '/' + f.name]) {
+                item.classList.add('in-upload');
+            }
 
             var name = document.createElement('span');
             var dirClass = f.isDir ? ' is-dir' : '';
@@ -1017,6 +1022,16 @@
                 size.className = 'size';
                 size.textContent = formatSize(f.size);
                 item.appendChild(size);
+
+                // Context menu to delete file
+                item.addEventListener('contextmenu', function (e) {
+                    e.preventDefault();
+                    var fpc = getFocusedPane();
+                    var fileCwd = fpc ? fpc.lastListedCWD || fpc.cwd : '';
+                    if (!fileCwd) return;
+                    var absPath = fileCwd.replace(/\/$/, '') + '/' + f.name;
+                    showFileContextMenu(e.clientX, e.clientY, f.name, absPath);
+                });
 
                 if (isPreviewable(f.name)) {
                     var pvBtn = document.createElement('button');
@@ -1188,6 +1203,26 @@
         return (bytes / 1048576).toFixed(1) + ' MB';
     }
 
+    function getUploadListPaths() {
+        var paths = {};
+        // Check active uploads only (skip done/history entries)
+        for (var id in uploads) {
+            var u = uploads[id];
+            if (u.el && (u.el.classList.contains('done') || u.el.classList.contains('history'))) continue;
+            if (u.filename && u.dir) {
+                paths[u.dir.replace(/\/$/, '') + '/' + u.filename] = true;
+            }
+        }
+        // Check localStorage history
+        try {
+            var history = JSON.parse(localStorage['webtermd-uploads-' + location.hostname] || '[]');
+            for (var i = 0; i < history.length; i++) {
+                if (history[i].path) paths[history[i].path] = true;
+            }
+        } catch (e) { }
+        return paths;
+    }
+
     // --- upload history (localStorage) ---
     var HISTORY_KEY = 'webtermd-uploads-' + location.hostname;
     var MAX_HISTORY = 99;
@@ -1233,7 +1268,16 @@
         for (var i = 0; i < items.length; i++) {
             items[i].parentNode.removeChild(items[i]);
         }
+        // Also clean done entries from uploads map
+        for (var id in uploads) {
+            var u = uploads[id];
+            if (u.el && u.el.classList.contains('done')) {
+                if (u.el.parentNode) u.el.parentNode.removeChild(u.el);
+                delete uploads[id];
+            }
+        }
         showEmptyHint();
+        refreshFileList();
     }
 
     function renderHistoryItem(entry) {
@@ -1310,6 +1354,28 @@
         }
         delete uploads[id];
         showEmptyHint();
+    }
+
+    function showFileContextMenu(x, y, name, path) {
+        ensureCtxMenu();
+        ctxMenu.style.display = 'block';
+        ctxMenu.style.left = x + 'px';
+        ctxMenu.style.top = y + 'px';
+        ctxMenu.innerHTML = '<div class="ctx-item ctx-danger" data-action="delete-file">Delete ' + escapeHtml(name) + '</div>';
+        ctxMenu.querySelector('.ctx-item').onclick = function () {
+            ctxMenu.style.display = 'none';
+            if (wsCmd && wsCmd.readyState === WebSocket.OPEN) {
+                wsCmd.send(JSON.stringify({ type: 'delete-file', path: path }));
+                // Refresh file list after deletion
+                setTimeout(function () {
+                    var fp = getFocusedPane();
+                    if (fp && fp.ws && fp.ws.readyState === WebSocket.OPEN) {
+                        fp.lastListedCWD = '';
+                        fp.ws.send(JSON.stringify({ type: 'list-files' }));
+                    }
+                }, 300);
+            }
+        };
     }
 
     // --- preview ---
@@ -1523,6 +1589,8 @@
                     var f = pendingUploads[msg.filename];
                     var total = f ? f.size : 0;
                     updateUpload(msg.id, msg.filename || '', 0, total);
+                    var u = uploads[msg.id];
+                    if (u) u.dir = msg.dir;
                     if (f) {
                         delete pendingUploads[msg.filename];
                         startChunkedUpload(msg.id, f);

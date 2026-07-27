@@ -222,6 +222,12 @@ body {
     gap: 6px;
 }
 
+#sidebar-files .file-item.in-upload {
+    background: rgba(139, 195, 74, 0.12);
+    border-left: 3px solid #8bc34a;
+    padding-left: 5px;
+}
+
 #sidebar-files .file-item .name {
     overflow: hidden;
     text-overflow: ellipsis;

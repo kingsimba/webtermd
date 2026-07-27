@@ -1,5 +1,6 @@
 # Changelog
 
+- 2026-07-27 webtermd: Highlight uploaded files in file list and add delete-file context menu
 - 2026-07-27 webtermd: Add upload history with per-device localStorage persistence and file deletion
 - 2026-07-27 webtermd: Preallocate disk space and check write permission during upload init
 - 2026-07-27 webtermd: Show device hostname in browser title and toolbar
