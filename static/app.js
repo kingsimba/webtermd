@@ -444,7 +444,21 @@
 
     function closePane(id) {
         var ids = getAllPaneIds();
-        if (ids.length <= 1) return; // Don't close the last pane.
+        if (ids.length <= 1) {
+            // Last pane — kill it and open a fresh one after a 1s delay.
+            destroyPane(id);
+            setTimeout(function () {
+                layoutTree = createDefaultLayout();
+                renderLayout(terminalContainer, layoutTree);
+                var newId = layoutTree.id;
+                var newPane = panes[newId];
+                if (newPane) {
+                    initPaneTerminal(newPane);
+                    focusPane(newId);
+                }
+            }, 500);
+            return;
+        }
 
         // Remove pane from tree and clean up.
         removePaneFromTree(layoutTree, id);
