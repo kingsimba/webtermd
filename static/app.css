@@ -594,3 +594,95 @@ body {
     margin-top: 8px;
     display: none;
 }
+
+/* ===== multi-pane split layout ===== */
+
+#terminal-container {
+    flex: 1;
+    overflow: hidden;
+    position: relative;
+}
+
+.split-container {
+    display: flex;
+    width: 100%;
+    height: 100%;
+}
+
+.split-child {
+    overflow: hidden;
+    position: relative;
+}
+
+.split-handle {
+    flex-shrink: 0;
+    background: #3c3c3c;
+    transition: background 0.15s;
+    z-index: 10;
+}
+
+.split-handle:hover,
+.split-handle.active {
+    background: #8bc34a;
+}
+
+.split-handle[data-direction="col"] {
+    width: 4px;
+    cursor: col-resize;
+}
+
+.split-handle[data-direction="row"] {
+    height: 4px;
+    cursor: row-resize;
+}
+
+.pane-container {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    border: 2px solid transparent;
+    box-sizing: border-box;
+}
+
+.pane-container.focused {
+    border-color: #8bc34a;
+}
+
+.pane-terminal {
+    height: 100%;
+    width: 100%;
+}
+
+.pane-container .xterm {
+    height: 100%;
+}
+
+.pane-close {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 22px;
+    height: 22px;
+    background: rgba(50, 50, 51, 0.85);
+    border: 1px solid #555;
+    color: #ccc;
+    cursor: pointer;
+    font-size: 12px;
+    line-height: 20px;
+    text-align: center;
+    border-radius: 3px;
+    z-index: 20;
+    opacity: 0;
+    transition: opacity 0.15s;
+    padding: 0;
+}
+
+.pane-container:hover .pane-close {
+    opacity: 1;
+}
+
+.pane-close:hover {
+    background: #d32f2f;
+    border-color: #d32f2f;
+    color: #fff;
+}

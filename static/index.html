@@ -23,7 +23,6 @@
         <button id="toggle-sidebar" title="Toggle file panel">☰</button>
       </div>
       <div id="terminal-container">
-        <div id="terminal"></div>
       </div>
     </div>
     <div id="sidebar">
@@ -93,6 +92,7 @@
       var uploadsList = document.getElementById('sidebar-uploads');
       var dropZone = document.getElementById('drop-zone');
       var emptyHint = uploadsList.querySelector('.empty-hint');
+      var terminalContainer = document.getElementById('terminal-container');
 
       function showError(msg) {
         status.textContent = msg;
@@ -110,33 +110,10 @@
         } else {
           sidebar.classList.add('collapsed');
         }
-        setTimeout(function () { fitAddon.fit(); }, 250);
+        setTimeout(function () { fitFocusedPane(); }, 250);
       });
-
-      // --- xterm ---
-      var term = new Terminal({
-        cursorBlink: true,
-        fontSize: 14,
-        fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-        theme: {
-          background: '#1e1e1e',
-          foreground: '#d4d4d4',
-          cursor: '#d4d4d4',
-          selectionBackground: '#264f78'
-        }
-      });
-
-      var fitAddon = new FitAddon.FitAddon();
-      term.loadAddon(fitAddon);
-      term.open(document.getElementById('terminal'));
-      fitAddon.fit();
 
       // --- clipboard sink (for plain-HTTP contexts) ---
-      // navigator.clipboard is undefined over HTTP. We keep a hidden
-      // <textarea> and focus it on Ctrl+V; the browser fires a native
-      // 'paste' event with clipboardData that we can read synchronously.
-      // For Ctrl+C we populate it with the selection and let the browser's
-      // copy default action pick it up.
       var hasClipboardAPI = !!(navigator.clipboard && navigator.clipboard.readText);
 
       var clipSink = document.createElement('textarea');
@@ -156,41 +133,758 @@
       clipSink.addEventListener('paste', function (ev) {
         var data = ev.clipboardData ? ev.clipboardData.getData('text/plain') : '';
         ev.preventDefault();
-        term.focus();
-        if (data) term.paste(data);
+        var fp = getFocusedPane();
+        if (fp) {
+          fp.term.focus();
+          if (data) fp.term.paste(data);
+        }
       });
 
-      // Windows-terminal-style copy/paste shortcuts.
-      // Capture-phase DOM listener runs before xterm.js internals.
-      // stopImmediatePropagation prevents xterm from sending \x03/\x16
-      // and — critically — from calling preventDefault, which would
-      // suppress the browser's native paste/copy default action.
-      document.getElementById('terminal').addEventListener('keydown', function (e) {
-        if (!e.ctrlKey || e.altKey || e.metaKey) return;
+      // --- global state ---
+      var wsCmd = null;
+      var uploadToken = '';
+      var uploadPrefix = '';
+      var uploads = {};        // id -> { el, filename, received, total, file, xhr, offset, paused }
+      var pendingUploads = {};  // filename -> File object (waiting for upload-init ack)
+      var basePath = location.pathname.replace(/\/[^/]*$/, '');
+      var sigNonce = '';
+
+      // --- multi-pane state ---
+      var layoutTree = null;   // recursive {type:'split'|'pane', ...} tree
+      var focusedPaneId = null;
+      var panes = {};           // id -> pane runtime object
+
+      // --- pane helpers ---
+      function createPaneId() {
+        return 'p' + Date.now().toString(36) + '_' + Math.random().toString(36).substr(2, 6);
+      }
+
+      function getFocusedPane() {
+        return panes[focusedPaneId] || null;
+      }
+
+      function getAllPaneIds(node) {
+        if (!node) node = layoutTree;
+        if (node.type === 'pane') return [node.id];
+        var ids = [];
+        for (var i = 0; i < node.children.length; i++) {
+          ids = ids.concat(getAllPaneIds(node.children[i]));
+        }
+        return ids;
+      }
+
+      function createPane(restoreCwd) {
+        var id = createPaneId();
+        var pane = {
+          id: id,
+          term: null,
+          fitAddon: null,
+          ws: null,
+          termDataDisposable: null,
+          termResizeDisposable: null,
+          cwd: null,
+          isAtShell: true,
+          files: [],
+          lastListedCWD: '',
+          pendingCwdRestore: restoreCwd || '',
+          sigOpenFired: false,
+          container: null,
+          terminalEl: null
+        };
+        panes[id] = pane;
+        return pane;
+      }
+
+      function destroyPane(id) {
+        var p = panes[id];
+        if (!p) return;
+        if (p.ws) {
+          try { p.ws.close(); } catch (e) { }
+        }
+        if (p.term) {
+          try { p.term.dispose(); } catch (e) { }
+        }
+        delete panes[id];
+      }
+
+      function fitPane(pane) {
+        if (!pane || !pane.fitAddon) return;
+        try { pane.fitAddon.fit(); } catch (e) { }
+      }
+
+      function fitFocusedPane() {
+        fitPane(getFocusedPane());
+      }
+
+      window.addEventListener('resize', function () {
+        var ids = getAllPaneIds();
+        for (var i = 0; i < ids.length; i++) {
+          fitPane(panes[ids[i]]);
+        }
+      });
+
+      // --- init pane terminal + WS ---
+      function initPaneTerminal(pane) {
+        pane.term = new Terminal({
+          cursorBlink: false,
+          fontSize: 14,
+          fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+          theme: {
+            background: '#1e1e1e',
+            foreground: '#d4d4d4',
+            cursor: '#d4d4d4',
+            selectionBackground: '#264f78'
+          }
+        });
+
+        pane.fitAddon = new FitAddon.FitAddon();
+        pane.term.loadAddon(pane.fitAddon);
+        pane.term.open(pane.terminalEl);
+
+        // Fit after a short delay to let the DOM settle.
+        setTimeout(function () { fitPane(pane); }, 100);
+
+        // Connect terminal WebSocket.
+        connectPaneWS(pane);
+      }
+
+      function connectPaneWS(pane) {
+        pane.sigOpenFired = false;
+        var nonce = sigNonce;
+        var stored = null;
+        try {
+          var raw = localStorage.getItem('ax-auth');
+          if (raw) stored = JSON.parse(raw);
+        } catch (e) { }
+
+        if (!nonce && stored && stored.nonce) nonce = stored.nonce;
+        var sig = stored ? stored.sig : '';
+
+        if (!nonce) {
+          // Need a fresh challenge first.
+          fetch(basePath + '/api/challenge')
+            .then(function (r) {
+              if (!r.ok) throw new Error('challenge failed: ' + r.status);
+              return r.json();
+            })
+            .then(function (data) {
+              sigNonce = data.nonce;
+              openPaneWS(pane, data.nonce, sig);
+            })
+            .catch(function () {
+              setTimeout(function () { connectPaneWS(pane); }, 3000);
+            });
+          return;
+        }
+        openPaneWS(pane, nonce, sig);
+      }
+
+      function openPaneWS(pane, nonce, sig) {
+        var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        var url = proto + '//' + location.host + basePath +
+          '/ws?nonce=' + encodeURIComponent(nonce) + '&signature=' + encodeURIComponent(sig);
+        pane.ws = new WebSocket(url);
+        pane.ws.binaryType = 'arraybuffer';
+
+        pane.ws.onopen = function () {
+          pane.sigOpenFired = true;
+
+          if (pane.termDataDisposable) pane.termDataDisposable.dispose();
+          pane.termDataDisposable = pane.term.onData(function (data) {
+            if (pane.ws && pane.ws.readyState === WebSocket.OPEN) {
+              pane.ws.send(data);
+            }
+          });
+
+          if (pane.termResizeDisposable) pane.termResizeDisposable.dispose();
+          pane.termResizeDisposable = pane.term.onResize(function (_a) {
+            if (pane.ws && pane.ws.readyState === WebSocket.OPEN) {
+              pane.ws.send(JSON.stringify({ type: 'resize', rows: _a.rows, cols: _a.cols }));
+            }
+          });
+
+          // Send current terminal size immediately.
+          pane.ws.send(JSON.stringify({ type: 'resize', rows: pane.term.rows, cols: pane.term.cols }));
+
+          pane.pendingCwdRestore = pane.cwd || '';
+
+          fitPane(pane);
+
+          // Focus the newly connected pane.
+          if (!focusedPaneId || focusedPaneId === pane.id) {
+            focusPane(pane.id);
+          }
+        };
+
+        pane.ws.onmessage = function (ev) { paneWSHandler(pane, ev); };
+
+        pane.ws.onclose = function () {
+          if (!pane.sigOpenFired && pane.id === focusedPaneId) {
+            // Auth failed — show dialog.
+            if (!sig) {
+              showSigDialog();
+              return;
+            }
+            try { localStorage.removeItem('ax-auth'); } catch (e) { }
+            document.getElementById('sig-error').style.display = 'block';
+            document.getElementById('sig-error').textContent = 'Authentication failed. Check your signature or refresh the nonce.';
+            document.getElementById('sig-overlay').classList.add('open');
+            return;
+          }
+          pane.term.write('\r\n\x1b[31m[disconnected]\x1b[0m\r\n');
+          setTimeout(function () { connectPaneWS(pane); }, 2000);
+        };
+
+        pane.ws.onerror = function () {
+          if (pane.sigOpenFired) {
+            showError('WebSocket connection failed');
+          }
+        };
+      }
+
+      // --- per-pane WS message handler ---
+      function paneWSHandler(pane, ev) {
+        if (typeof ev.data === 'string') {
+          try {
+            var msg = JSON.parse(ev.data);
+            switch (msg.type) {
+              case 'session':
+                break;
+
+              case 'cwd':
+                pane.cwd = msg.path;
+                if (pane.id === focusedPaneId) {
+                  setCWD(msg.path);
+                }
+                if (pane.pendingCwdRestore && pane.pendingCwdRestore !== '-' &&
+                    msg.path !== pane.pendingCwdRestore && pane.ws) {
+                  pane.ws.send(JSON.stringify({ type: 'restore-cwd', path: pane.pendingCwdRestore }));
+                }
+                pane.pendingCwdRestore = '';
+                if (pane.id === focusedPaneId) refreshFileList();
+                break;
+
+              case 'foreground':
+                var shells = ['bash', 'zsh', 'fish', 'sh', 'dash', 'ash'];
+                var newAtShell = shells.indexOf(msg.proc) !== -1;
+                if (newAtShell !== pane.isAtShell) {
+                  pane.isAtShell = newAtShell;
+                  if (pane.id === focusedPaneId) renderFiltered();
+                }
+                break;
+
+              case 'file-list':
+                pane.lastListedCWD = msg.dir;
+                pane.files = msg.files || [];
+                if (pane.id === focusedPaneId) {
+                  renderFiltered();
+                }
+                break;
+
+              case 'file-list-error':
+                if (pane.id === focusedPaneId) {
+                  fileItems.innerHTML = '<div class="empty-hint" style="color:#d32f2f">' + msg.message + '</div>';
+                }
+                break;
+
+              case 'download-ready':
+                triggerDownload(basePath + msg.url);
+                break;
+
+              case 'download-error':
+                showError('Download: ' + msg.message);
+                break;
+
+              case 'preview-content':
+                openPreview(msg.path, msg.content);
+                break;
+
+              case 'preview-error':
+                showError('Preview: ' + msg.message);
+                break;
+            }
+          } catch (e) { }
+        } else {
+          // Binary = PTY output.
+          pane.term.write(new Uint8Array(ev.data));
+        }
+      }
+
+      // --- focus management ---
+      function focusPane(id) {
+        if (focusedPaneId === id) return;
+
+        // Unfocus previous — disable cursor blink.
+        var old = panes[focusedPaneId];
+        if (old) {
+          if (old.container) old.container.classList.remove('focused');
+          if (old.term) old.term.options.cursorBlink = false;
+        }
+
+        focusedPaneId = id;
+        var p = panes[id];
+        if (!p) return;
+
+        if (p.container) p.container.classList.add('focused');
+        if (p.term) p.term.options.cursorBlink = true;
+
+        // Update sidebar to show this pane's cached data.
+        if (p.cwd) setCWD(p.cwd);
+        if (p.files.length > 0) {
+          renderFileList(p.lastListedCWD || p.cwd, p.files);
+        } else {
+          fileItems.innerHTML = '<div class="empty-hint">Click "List Files" to browse</div>';
+        }
+
+        try { p.term.focus(); } catch (e) { }
+      }
+
+      // --- split / close / resize ---
+      function splitPane(direction) {
+        if (!focusedPaneId) return;
+        var fp = getFocusedPane();
+        if (!fp) return;
+        var sourceCwd = fp.cwd || '';
+
+        // Find the parent split node that contains the focused pane, or the root.
+        var parentSplit = findParentSplit(layoutTree, focusedPaneId);
+        if (!parentSplit) {
+          // Single pane case — wrap in a split.
+          var newPane = createPane(sourceCwd);
+          var oldId = focusedPaneId;
+
+          // Reparent: old pane + new pane become children of a new split.
+          layoutTree = {
+            type: 'split',
+            direction: direction,
+            ratio: 0.5,
+            children: [
+              { type: 'pane', id: oldId },
+              { type: 'pane', id: newPane.id }
+            ]
+          };
+
+          renderLayout(terminalContainer, layoutTree);
+
+          // Init terminal for new pane.
+          initPaneTerminal(newPane);
+          focusPane(oldId);
+          return;
+        }
+
+        // Multi-pane case — wrap the focused pane's leaf in a new split.
+        var childIdx = -1;
+        for (var i = 0; i < parentSplit.children.length; i++) {
+          if (containsPane(parentSplit.children[i], focusedPaneId)) {
+            childIdx = i;
+            break;
+          }
+        }
+        if (childIdx < 0) return;
+
+        var newPane = createPane(sourceCwd);
+
+        var existingChild = parentSplit.children[childIdx];
+
+        // Always nest: wrap the existing child in a new binary split.
+        // This keeps the tree strictly binary (2 children per split),
+        // which matches the renderLayout assumption.
+        parentSplit.children[childIdx] = {
+          type: 'split',
+          direction: direction,
+          ratio: 0.5,
+          children: [existingChild, { type: 'pane', id: newPane.id }]
+        };
+
+        renderLayout(terminalContainer, layoutTree);
+        initPaneTerminal(newPane);
+        focusPane(newPane.id);
+      }
+
+      function containsPane(node, id) {
+        if (node.type === 'pane') return node.id === id;
+        for (var i = 0; i < node.children.length; i++) {
+          if (containsPane(node.children[i], id)) return true;
+        }
+        return false;
+      }
+
+      function findParentSplit(node, id) {
+        if (node.type === 'pane') return null;
+        for (var i = 0; i < node.children.length; i++) {
+          if (containsPane(node.children[i], id)) {
+            // If the child itself is a split, recurse to find the innermost parent.
+            if (node.children[i].type === 'split') {
+              var deeper = findParentSplit(node.children[i], id);
+              if (deeper) return deeper;
+            }
+            return node;
+          }
+        }
+        return null;
+      }
+
+      function closePane(id) {
+        var ids = getAllPaneIds();
+        if (ids.length <= 1) return; // Don't close the last pane.
+
+        // Remove pane from tree and clean up.
+        removePaneFromTree(layoutTree, id);
+
+        // Pick a new focus.
+        var remaining = getAllPaneIds();
+        var newFocus = remaining[0];
+
+        // If the closed pane was focused, find the closest remaining.
+        if (focusedPaneId === id) {
+          var idx = ids.indexOf(id);
+          if (idx >= 0) {
+            // Prefer the next pane, fall back to previous.
+            if (idx < ids.length - 1) {
+              for (var i = idx + 1; i < ids.length; i++) {
+                if (panes[ids[i]]) { newFocus = ids[i]; break; }
+              }
+            } else {
+              for (var i = idx - 1; i >= 0; i--) {
+                if (panes[ids[i]]) { newFocus = ids[i]; break; }
+              }
+            }
+          }
+        } else {
+          newFocus = focusedPaneId;
+        }
+
+        // Collapse: if root is a split with only one child, use that child.
+        while (layoutTree.type === 'split' && layoutTree.children.length === 1) {
+          layoutTree = layoutTree.children[0];
+        }
+        // If root is a split with no children (shouldn't happen), create a fresh pane.
+        if (layoutTree.type === 'split' && layoutTree.children.length === 0) {
+          var fallback = createPane(null);
+          layoutTree = { type: 'pane', id: fallback.id };
+          renderLayout(terminalContainer, layoutTree);
+          initPaneTerminal(fallback);
+          focusPane(fallback.id);
+          destroyPane(id);
+          return;
+        }
+
+        destroyPane(id);
+        renderLayout(terminalContainer, layoutTree);
+
+        // Re-init any pane that lost its DOM (unlikely but safe).
+        var afterIds = getAllPaneIds();
+        for (var j = 0; j < afterIds.length; j++) {
+          var pid = afterIds[j];
+          var p = panes[pid];
+          if (p && !p.term) {
+            initPaneTerminal(p);
+          }
+        }
+
+        focusPane(newFocus);
+      }
+
+      function removePaneFromTree(node, id) {
+        if (node.type === 'pane') return false;
+        for (var i = node.children.length - 1; i >= 0; i--) {
+          var child = node.children[i];
+          if (child.type === 'pane' && child.id === id) {
+            node.children.splice(i, 1);
+            return true;
+          }
+          if (child.type === 'split' && removePaneFromTree(child, id)) {
+            // Collapse single-child splits.
+            if (child.children.length === 1) {
+              node.children[i] = child.children[0];
+            } else if (child.children.length === 0) {
+              node.children.splice(i, 1);
+            }
+            return true;
+          }
+        }
+        return false;
+      }
+
+      function moveFocus(direction) {
+        var ids = getAllPaneIds();
+        if (ids.length <= 1) return;
+        var idx = ids.indexOf(focusedPaneId);
+        if (idx < 0) return;
+        var nextIdx;
+        if (direction === 'right' || direction === 'down') {
+          nextIdx = (idx + 1) % ids.length;
+        } else {
+          nextIdx = (idx - 1 + ids.length) % ids.length;
+        }
+        focusPane(ids[nextIdx]);
+      }
+
+      function resizeFocused(direction, amount) {
+        if (!focusedPaneId) return;
+        // Find the nearest ancestor split and adjust its ratio.
+        var split = findNearestSplit(layoutTree, focusedPaneId, direction);
+        if (!split) return;
+        var delta = (direction === 'right' || direction === 'down') ? amount : -amount;
+        var newRatio = split.ratio + delta;
+        split.ratio = Math.max(0.1, Math.min(0.9, newRatio));
+
+        // Update DOM directly (avoid full re-render).
+        var pane = getFocusedPane();
+        if (!pane || !pane.container) return;
+        var splitEl = findSplitDOM(terminalContainer, split);
+        if (!splitEl) { renderLayout(terminalContainer, layoutTree); return; }
+        var children = splitEl.querySelectorAll(':scope > .split-child');
+        if (children.length >= 2) {
+          children[0].style.flex = split.ratio;
+          children[1].style.flex = 1 - split.ratio;
+        }
+        // Sync terminal sizes to backend after DOM resize.
+        var ids = getAllPaneIds();
+        for (var i = 0; i < ids.length; i++) {
+          fitPane(panes[ids[i]]);
+        }
+      }
+
+      function findSplitDOM(container, targetSplit) {
+        // Walk DOM matching the layout tree to find the split element.
+        function walk(domParent, treeNode) {
+          if (treeNode === targetSplit) {
+            var splitEls = domParent.querySelectorAll(':scope > .split-container');
+            if (splitEls.length > 0) return splitEls[0];
+            return domParent;
+          }
+          if (treeNode.type !== 'split') return null;
+          var splitEl = domParent.querySelector(':scope > .split-container');
+          if (!splitEl) return null;
+          var children = splitEl.querySelectorAll(':scope > .split-child');
+          if (children.length < 2) return null;
+          var leftResult = walk(children[0], treeNode.children[0]);
+          if (leftResult) return leftResult;
+          return walk(children[1], treeNode.children[1]);
+        }
+        if (layoutTree === targetSplit) {
+          var s = container.querySelector(':scope > .split-container');
+          return s || container;
+        }
+        return walk(container, layoutTree);
+      }
+
+      function findNearestSplit(node, id, direction) {
+        if (node.type === 'pane') return null;
+        var isCol = (direction === 'left' || direction === 'right');
+        var wantDir = isCol ? 'horizontal' : 'vertical';
+        if (node.direction === wantDir) return node;
+        for (var i = 0; i < node.children.length; i++) {
+          var result = findNearestSplit(node.children[i], id, direction);
+          if (result) return result;
+        }
+        return null;
+      }
+
+      // --- layout rendering ---
+      function renderLayout(container, node) {
+        container.innerHTML = '';
+
+        if (node.type === 'pane') {
+          var pane = panes[node.id];
+          if (!pane) {
+            pane = createPane(node.cwd || null);
+            node.id = pane.id;
+          }
+
+          pane.container = document.createElement('div');
+          pane.container.className = 'pane-container';
+          pane.container.setAttribute('data-pane-id', pane.id);
+
+          pane.terminalEl = document.createElement('div');
+          pane.terminalEl.className = 'pane-terminal';
+          pane.container.appendChild(pane.terminalEl);
+
+          // Close button (visible on hover).
+          var closeBtn = document.createElement('button');
+          closeBtn.className = 'pane-close';
+          closeBtn.textContent = '✕';
+          closeBtn.title = 'Close pane';
+          closeBtn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            closePane(pane.id);
+          });
+          pane.container.appendChild(closeBtn);
+
+          container.appendChild(pane.container);
+
+          // Click to focus.
+          pane.container.addEventListener('mousedown', function () {
+            focusPane(pane.id);
+          });
+
+          // If this pane already has a terminal, re-attach it.
+          if (pane.term && pane.term.element) {
+            pane.terminalEl.appendChild(pane.term.element);
+            setTimeout(function () { fitPane(pane); }, 50);
+          }
+
+          // Focus indicator.
+          if (pane.id === focusedPaneId) {
+            pane.container.classList.add('focused');
+          }
+
+          return;
+        }
+
+        // Split node.
+        var splitEl = document.createElement('div');
+        splitEl.className = 'split-container';
+        splitEl.style.flexDirection = node.direction === 'horizontal' ? 'row' : 'column';
+
+        var leftEl = document.createElement('div');
+        leftEl.className = 'split-child';
+        leftEl.style.flex = node.ratio;
+
+        var handle = document.createElement('div');
+        handle.className = 'split-handle';
+        handle.setAttribute('data-direction', node.direction === 'horizontal' ? 'col' : 'row');
+
+        var rightEl = document.createElement('div');
+        rightEl.className = 'split-child';
+        rightEl.style.flex = 1 - node.ratio;
+
+        splitEl.appendChild(leftEl);
+        splitEl.appendChild(handle);
+        splitEl.appendChild(rightEl);
+        container.appendChild(splitEl);
+
+        renderLayout(leftEl, node.children[0]);
+        renderLayout(rightEl, node.children[1]);
+
+        initResizeHandle(handle, node, leftEl, rightEl);
+      }
+
+      function initResizeHandle(handle, splitNode, leftChild, rightChild) {
+        handle.addEventListener('mousedown', function (e) {
+          e.preventDefault();
+          var isCol = splitNode.direction === 'horizontal';
+          var startPos = isCol ? e.clientX : e.clientY;
+          var startRatio = splitNode.ratio;
+          var parentEl = handle.parentElement;
+          var totalSize = isCol ? parentEl.offsetWidth : parentEl.offsetHeight;
+          if (!totalSize) return;
+
+          handle.classList.add('active');
+
+          function onMove(ev) {
+            var currentPos = isCol ? ev.clientX : ev.clientY;
+            var delta = currentPos - startPos;
+            var newRatio = startRatio + delta / totalSize;
+            newRatio = Math.max(0.1, Math.min(0.9, newRatio));
+            splitNode.ratio = newRatio;
+            leftChild.style.flex = newRatio;
+            rightChild.style.flex = 1 - newRatio;
+          }
+
+          function onUp() {
+            handle.classList.remove('active');
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+          }
+
+          document.addEventListener('mousemove', onMove);
+          document.addEventListener('mouseup', onUp);
+        });
+      }
+
+      // --- layout ---
+      function createDefaultLayout() {
+        // Always start with a single pane.
+        var p = createPane(null);
+        return { type: 'pane', id: p.id };
+      }
+
+      // --- global hotkey handler (capture phase) ---
+      terminalContainer.addEventListener('keydown', function (e) {
+        // Alt+Shift+D → split horizontal (side by side)
+        if (e.altKey && e.shiftKey && !e.ctrlKey && !e.metaKey && (e.key === 'd' || e.key === 'D')) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          splitPane('horizontal');
+          return;
+        }
+        // Alt+Shift+- → split vertical (stacked)
+        if (e.altKey && e.shiftKey && !e.ctrlKey && !e.metaKey && (e.key === '-' || e.key === '_')) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          splitPane('vertical');
+          return;
+        }
+        // Alt+Shift+Arrow → resize
+        if (e.altKey && e.shiftKey && !e.ctrlKey && !e.metaKey) {
+          var rdir = null;
+          if (e.key === 'ArrowLeft') rdir = 'left';
+          else if (e.key === 'ArrowRight') rdir = 'right';
+          else if (e.key === 'ArrowUp') rdir = 'up';
+          else if (e.key === 'ArrowDown') rdir = 'down';
+          if (rdir) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            resizeFocused(rdir, 0.05);
+            return;
+          }
+        }
+        // Alt+Arrow → move focus
+        if (e.altKey && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+          var mdir = null;
+          if (e.key === 'ArrowLeft') mdir = 'left';
+          else if (e.key === 'ArrowRight') mdir = 'right';
+          else if (e.key === 'ArrowUp') mdir = 'up';
+          else if (e.key === 'ArrowDown') mdir = 'down';
+          if (mdir) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            moveFocus(mdir);
+            return;
+          }
+        }
+        // Ctrl+Shift+W or Ctrl+Q → close focused pane (only when multiple panes exist)
+        if (e.ctrlKey && !e.altKey && !e.metaKey && (e.key === 'w' || e.key === 'W') && e.shiftKey) {
+          if (getAllPaneIds().length > 1) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            closePane(focusedPaneId);
+            return;
+          }
+        }
+        if (e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey && (e.key === 'q' || e.key === 'Q')) {
+          if (getAllPaneIds().length > 1) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            closePane(focusedPaneId);
+            return;
+          }
+        }
+
+        // --- clipboard (Ctrl+C/V, no Alt/Meta, no Shift) ---
+        if (!e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
+        var fp = getFocusedPane();
+        if (!fp || !fp.term) return;
 
         // Ctrl+C: copy selection, or fall through to SIGINT.
         if (e.key === 'c' || e.key === 'C') {
-          var sel = term.getSelection();
+          var sel = fp.term.getSelection();
           if (sel) {
             e.preventDefault();
             e.stopImmediatePropagation();
-            term.clearSelection();
+            fp.term.clearSelection();
             if (hasClipboardAPI) {
               navigator.clipboard.writeText(sel).catch(function () { });
             } else {
-              // execCommand('copy') is the only synchronous clipboard
-              // write available in non-secure (HTTP) contexts. It's
-              // deprecated but still functional and works from a user
-              // gesture (this keydown handler satisfies that).
               clipSink.value = sel;
               clipSink.select();
               clipSink.focus();
               try { document.execCommand('copy'); } catch (err) { }
-              setTimeout(function () { term.focus(); }, 0);
+              setTimeout(function () { fp.term.focus(); }, 0);
             }
           }
-          // else: nothing selected — don't stop propagation, \x03
-          // reaches xterm and is sent to the PTY as SIGINT.
           return;
         }
 
@@ -200,64 +894,43 @@
           if (hasClipboardAPI) {
             e.preventDefault();
             navigator.clipboard.readText().then(function (text) {
-              if (text) term.paste(text);
+              if (text) fp.term.paste(text);
             }).catch(function () { });
           } else {
-            // Focus clipSink so the browser fires 'paste' on it.
-            // The paste listener reads clipboardData and forwards
-            // the text to the terminal via term.paste().
             clipSink.value = '';
             clipSink.focus();
             setTimeout(function () {
-              if (document.activeElement === clipSink) term.focus();
+              if (document.activeElement === clipSink) fp.term.focus();
             }, 0);
           }
           return;
         }
       }, true);
 
-      window.addEventListener('resize', function () { fitAddon.fit(); });
-
-      // --- state ---
-      var ws = null;
-      var wsCmd = null;
-      var termDataDisposable = null;
-      var termResizeDisposable = null;
-      var uploadToken = '';
-      var uploadPrefix = '';
-      var uploads = {};        // id -> { el, filename, received, total, file, xhr, offset, paused }
-      var pendingUploads = {};  // filename -> File object (waiting for upload-init ack)
-      var basePath = location.pathname.replace(/\/[^/]*$/, '');
-      var pendingCwdRestore = '';
-      var isAtShell = true;
-      var sigNonce = '';
-      var sigOpenFired = false;
-
+      // --- toolbar CWD display ---
       function setCWD(path) {
         cwdPath.textContent = path;
         cwdInline.textContent = path;
         cwdInline.title = path;
       }
 
-      var lastListedCWD = '';
-
-      function refreshFileList() {
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          var cwd = cwdPath.textContent;
-          if (cwd !== '-' && cwd !== lastListedCWD) {
-            lastListedCWD = cwd;
-            ws.send(JSON.stringify({ type: 'list-files' }));
-          }
-        }
-      }
-
-
-      // --- file list ---
+      // --- file list (per-pane, follows focus) ---
       var filesList = document.getElementById('sidebar-files');
       var fileItems = document.getElementById('file-items');
       var fileFilter = document.getElementById('file-filter');
       var hideHidden = document.getElementById('hide-hidden');
       var lastFiles = [];
+      var lastListedCWD = '';
+
+      function refreshFileList() {
+        var fp = getFocusedPane();
+        if (!fp || !fp.ws || fp.ws.readyState !== WebSocket.OPEN) return;
+        var cwd = cwdPath.textContent;
+        if (cwd !== '-' && cwd !== fp.lastListedCWD) {
+          fp.lastListedCWD = cwd;
+          fp.ws.send(JSON.stringify({ type: 'list-files' }));
+        }
+      }
 
       fileFilter.addEventListener('input', function () {
         renderFiltered();
@@ -266,15 +939,18 @@
         renderFiltered();
       });
       document.getElementById('refresh-files').addEventListener('click', function () {
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          lastListedCWD = '';
-          ws.send(JSON.stringify({ type: 'list-files' }));
+        var fp = getFocusedPane();
+        if (fp && fp.ws && fp.ws.readyState === WebSocket.OPEN) {
+          fp.lastListedCWD = '';
+          fp.ws.send(JSON.stringify({ type: 'list-files' }));
         }
       });
 
       function renderFiltered() {
         var query = fileFilter.value.toLowerCase();
-        var filtered = lastFiles;
+        var fp = getFocusedPane();
+        var files = fp ? fp.files : [];
+        var filtered = files;
         if (!hideHidden.checked) {
           filtered = filtered.filter(function (f) { return f.name[0] !== '.'; });
         }
@@ -283,20 +959,22 @@
         }
         fileItems.innerHTML = '';
 
-        // Show .. at top when not at root.
-        var showDotDot = lastListedCWD !== '/' && lastListedCWD !== '-' && lastListedCWD !== '';
+        var cwd = fp ? fp.lastListedCWD || fp.cwd : '';
+        var showDotDot = cwd && cwd !== '/' && cwd !== '-';
         if (showDotDot) {
           var dotDot = document.createElement('div');
           dotDot.className = 'file-item';
           var ddName = document.createElement('span');
-          ddName.className = 'name is-dir' + (isAtShell ? ' clickable' : '');
+          var isShell = fp ? fp.isAtShell : true;
+          ddName.className = 'name is-dir' + (isShell ? ' clickable' : '');
           ddName.textContent = '../';
           ddName.title = '..';
           dotDot.appendChild(ddName);
-          if (isAtShell) {
+          if (isShell) {
             dotDot.addEventListener('dblclick', function () {
-              if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send('cd ..\n');
+              var f = getFocusedPane();
+              if (f && f.ws && f.ws.readyState === WebSocket.OPEN) {
+                f.ws.send('cd ..\n');
               }
             });
           }
@@ -315,7 +993,8 @@
 
           var name = document.createElement('span');
           var dirClass = f.isDir ? ' is-dir' : '';
-          if (f.isDir && isAtShell) {
+          var fp2 = getFocusedPane();
+          if (f.isDir && fp2 && fp2.isAtShell) {
             dirClass += ' clickable';
           }
           name.className = 'name' + dirClass;
@@ -323,10 +1002,11 @@
           name.title = f.name;
           item.appendChild(name);
 
-          if (f.isDir && isAtShell) {
+          if (f.isDir) {
             item.addEventListener('dblclick', function () {
-              if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send('cd ' + f.name + '\n');
+              var f2 = getFocusedPane();
+              if (f2 && f2.ws && f2.ws.readyState === WebSocket.OPEN) {
+                f2.ws.send('cd ' + f.name + '\n');
               }
             });
           }
@@ -343,11 +1023,12 @@
               pvBtn.textContent = '👁';
               pvBtn.title = 'Preview ' + f.name;
               pvBtn.addEventListener('click', function () {
-                if (!ws || ws.readyState !== WebSocket.OPEN) {
+                var f3 = getFocusedPane();
+                if (!f3 || !f3.ws || f3.ws.readyState !== WebSocket.OPEN) {
                   showError('Not connected');
                   return;
                 }
-                ws.send(JSON.stringify({ type: 'preview', path: f.name }));
+                f3.ws.send(JSON.stringify({ type: 'preview', path: f.name }));
               });
               item.appendChild(pvBtn);
             }
@@ -357,11 +1038,12 @@
             dlBtn.textContent = '↓';
             dlBtn.title = 'Download ' + f.name;
             dlBtn.addEventListener('click', function () {
-              if (!ws || ws.readyState !== WebSocket.OPEN) {
+              var f4 = getFocusedPane();
+              if (!f4 || !f4.ws || f4.ws.readyState !== WebSocket.OPEN) {
                 showError('Not connected');
                 return;
               }
-              ws.send(JSON.stringify({ type: 'download', path: f.name }));
+              f4.ws.send(JSON.stringify({ type: 'download', path: f.name }));
             });
             item.appendChild(dlBtn);
           }
@@ -371,14 +1053,17 @@
       }
 
       function renderFileList(dir, files) {
+        var fp = getFocusedPane();
+        if (fp) {
+          fp.lastListedCWD = dir;
+          fp.files = files;
+        }
         lastListedCWD = dir;
         lastFiles = files;
         renderFiltered();
       }
 
       function triggerDownload(url) {
-        // iframe avoids page navigation — the download runs in a separate
-        // browsing context so the main page's WebSocket stays alive.
         var iframe = document.createElement('iframe');
         iframe.style.display = 'none';
         iframe.src = url;
@@ -466,11 +1151,9 @@
         if (!u || !u.file) return;
         u.paused = !u.paused;
         if (u.paused) {
-          // Abort current XHR if any.
           if (u.xhr) { u.xhr.abort(); u.xhr = null; }
           updateUpload(id, u.filename, u.received, u.total);
         } else {
-          // Resume.
           updateUpload(id, u.filename, u.received, u.total);
           sendChunk(id);
         }
@@ -480,7 +1163,9 @@
         var u = uploads[id];
         if (!u) return;
         if (u.xhr) { u.xhr.abort(); u.xhr = null; }
-        wsCmd.send(JSON.stringify({ type: 'upload-cancel', id: id }));
+        if (wsCmd && wsCmd.readyState === WebSocket.OPEN) {
+          wsCmd.send(JSON.stringify({ type: 'upload-cancel', id: id }));
+        }
         try { localStorage.removeItem('ax-upload-' + id); } catch (e) { }
         if (u.el && u.el.parentNode) u.el.parentNode.removeChild(u.el);
         delete uploads[id];
@@ -545,7 +1230,9 @@
         var u = uploads[id];
         if (!u || u.paused) return;
         if (u.offset >= u.total) {
-          wsCmd.send(JSON.stringify({ type: 'upload-commit', id: id }));
+          if (wsCmd && wsCmd.readyState === WebSocket.OPEN) {
+            wsCmd.send(JSON.stringify({ type: 'upload-commit', id: id }));
+          }
           return;
         }
 
@@ -557,7 +1244,7 @@
         var url = uploadPrefix + id + '?utoken=' + encodeURIComponent(uploadToken) + '&offset=' + u.offset;
         xhr.open('POST', url);
         xhr.onload = function () {
-          if (!uploads[id]) return; // cancelled
+          if (!uploads[id]) return;
           if (xhr.status >= 200 && xhr.status < 300) {
             var resp = JSON.parse(xhr.responseText);
             u.offset += resp.bytes_written;
@@ -607,11 +1294,13 @@
           return;
         }
         pendingUploads[file.name] = file;
+        var fp = getFocusedPane();
+        var dir = fp && fp.cwd ? fp.cwd : (cwdPath.textContent !== '-' ? cwdPath.textContent : '/tmp');
         wsCmd.send(JSON.stringify({
           type: 'upload-init',
           filename: file.name,
           size: file.size,
-          dir: cwdPath.textContent
+          dir: dir
         }));
       }
 
@@ -646,112 +1335,13 @@
         input.click();
       });
 
-      // --- WebSocket ---
-      function connect(signature) {
-        sigOpenFired = false;
-        // When submitting a signature, reuse the existing nonce from the dialog.
-        // Otherwise fetch a fresh challenge.
-        if (signature && sigNonce) {
-          openWS(sigNonce, signature);
-          connectCmd(sigNonce, signature);
-          return;
-        }
-        fetch(basePath + '/api/challenge')
-          .then(function (r) {
-            if (!r.ok) throw new Error('challenge failed: ' + r.status);
-            return r.json();
-          })
-          .then(function (data) {
-            sigNonce = data.nonce;
-            openWS(sigNonce, signature || '');
-            connectCmd(sigNonce, signature || '');
-          })
-          .catch(function (err) {
-            showError('Connection error: ' + err.message);
-            setTimeout(function () { connect(); }, 3000);
-          });
-      }
-
-      function openWS(nonce, sig) {
-        var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-        var url = proto + '//' + location.host + basePath + '/ws?nonce=' + encodeURIComponent(nonce) + '&signature=' + encodeURIComponent(sig);
-        ws = new WebSocket(url);
-        ws.binaryType = 'arraybuffer';
-
-        ws.onopen = function () {
-          sigOpenFired = true;
-          if (sig && nonce) {
-            try { localStorage.setItem('ax-auth', JSON.stringify({ nonce: nonce, sig: sig })); } catch (e) { }
-          }
-          document.getElementById('sig-overlay').classList.remove('open');
-          term.focus();
-          if (termDataDisposable) termDataDisposable.dispose();
-          termDataDisposable = term.onData(function (data) {
-            if (ws && ws.readyState === WebSocket.OPEN) {
-              ws.send(data);
-            }
-          });
-
-          if (termResizeDisposable) termResizeDisposable.dispose();
-          termResizeDisposable = term.onResize(function (_a) {
-            if (ws && ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify({
-                type: 'resize',
-                rows: _a.rows,
-                cols: _a.cols
-              }));
-            }
-          });
-
-          // Send current terminal size immediately so the new PTY
-          // session matches the client viewport on reconnect.
-          ws.send(JSON.stringify({
-            type: 'resize',
-            rows: term.rows,
-            cols: term.cols
-          }));
-
-          // Remember last CWD so we can restore it if the server
-          // reports a different one (indicating a fresh shell after
-          // server restart, not just a network blip).
-          pendingCwdRestore = cwdPath.textContent;
-        };
-
-        ws.onmessage = wsMainHandler;
-
-        ws.onclose = function () {
-          if (!sigOpenFired) {
-            if (!sig) {
-              // First connect or refresh — show signature dialog.
-              showSigDialog();
-              return;
-            }
-            // Saved or submitted signature was rejected. Clear and show dialog.
-            try { localStorage.removeItem('ax-auth'); } catch (e) { }
-            document.getElementById('sig-error').style.display = 'block';
-            document.getElementById('sig-error').textContent = 'Authentication failed. Check your signature or refresh the nonce.';
-            document.getElementById('sig-overlay').classList.add('open');
-            return;
-          }
-          term.write('\r\n\x1b[31m[disconnected]\x1b[0m\r\n');
-          setTimeout(function () { connect(); }, 2000);
-        };
-
-        ws.onerror = function () {
-          if (sigOpenFired) {
-            showError('WebSocket connection failed');
-          }
-        };
-      }
-
+      // --- command channel WebSocket ---
       function connectCmd(nonce, sig) {
         var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
         var url = proto + '//' + location.host + basePath + '/ws/cmd?nonce=' + encodeURIComponent(nonce) + '&signature=' + encodeURIComponent(sig);
         wsCmd = new WebSocket(url);
 
-        wsCmd.onopen = function () {
-          // command channel is ready
-        };
+        wsCmd.onopen = function () { };
 
         wsCmd.onmessage = function (ev) {
           var msg = JSON.parse(ev.data);
@@ -759,7 +1349,6 @@
             case 'session':
               uploadToken = msg.upload_token;
               uploadPrefix = basePath + msg.upload_prefix;
-              // Resume interrupted uploads
               for (var i = 0; i < localStorage.length; i++) {
                 var key = localStorage.key(i);
                 if (key.indexOf('ax-upload-') === 0) {
@@ -806,6 +1395,7 @@
         };
       }
 
+      // --- auth dialog ---
       function showSigDialog() {
         var cmd = "printf '%s' '" + sigNonce + "' | openssl dgst -sha256 -sign ~/.ssh/id_rsa | base64 -w0";
         document.getElementById('sig-cmd').textContent = cmd;
@@ -815,17 +1405,25 @@
         document.getElementById('sig-input').focus();
       }
 
-      // --- auth dialog handlers ---
       document.getElementById('sig-connect').addEventListener('click', function () {
         var sig = document.getElementById('sig-input').value.trim();
         if (!sig) return;
         document.getElementById('sig-overlay').classList.remove('open');
-        connect(sig);
+        // Reconnect focused pane with new signature.
+        try { localStorage.setItem('ax-auth', JSON.stringify({ nonce: sigNonce, sig: sig })); } catch (e) { }
+        var fp = getFocusedPane();
+        if (fp) {
+          if (fp.ws) try { fp.ws.close(); } catch (e) { }
+          connectPaneWS(fp);
+        }
+        if (wsCmd) try { wsCmd.close(); } catch (e) { }
+        connectCmd(sigNonce, sig);
       });
 
       document.getElementById('sig-refresh').addEventListener('click', function () {
         document.getElementById('sig-overlay').classList.remove('open');
-        connect();
+        // Reconnect all.
+        startAll();
       });
 
       document.getElementById('sig-input').addEventListener('keydown', function (e) {
@@ -834,83 +1432,85 @@
         }
       });
 
-      function wsMainHandler(ev) {
-        if (typeof ev.data === 'string') {
-          try {
-            var msg = JSON.parse(ev.data);
-            switch (msg.type) {
-              case 'session':
-                break;
+      // --- startup ---
+      function startAll() {
+        var savedAuth = null;
+        try {
+          var raw = localStorage.getItem('ax-auth');
+          if (raw) savedAuth = JSON.parse(raw);
+        } catch (e) { }
 
-              case 'cwd':
-                setCWD(msg.path);
-                // Restore CWD if the server started a fresh shell (path
-                // differs from what we saw before disconnect). On a
-                // network blip the shell keeps running, so the paths
-                // match and no restore is needed.
-                if (pendingCwdRestore && pendingCwdRestore !== '-' && msg.path !== pendingCwdRestore) {
-                  ws.send(JSON.stringify({ type: 'restore-cwd', path: pendingCwdRestore }));
-                }
-                pendingCwdRestore = '';
-                refreshFileList();
-                break;
-
-              case 'foreground':
-                var shells = ['bash', 'zsh', 'fish', 'sh', 'dash', 'ash'];
-                var newAtShell = shells.indexOf(msg.proc) !== -1;
-                if (newAtShell !== isAtShell) {
-                  isAtShell = newAtShell;
-                  renderFiltered();
-                }
-                break;
-
-              case 'file-list':
-                renderFileList(msg.dir, msg.files || []);
-                break;
-
-              case 'file-list-error':
-                fileItems.innerHTML = '<div class="empty-hint" style="color:#d32f2f">' + msg.message + '</div>';
-                break;
-
-              case 'download-ready':
-                triggerDownload(basePath + msg.url);
-                break;
-
-              case 'download-error':
-                showError('Download: ' + msg.message);
-                break;
-
-              case 'preview-content':
-                openPreview(msg.path, msg.content);
-                break;
-
-              case 'preview-error':
-                showError('Preview: ' + msg.message);
-                break;
-            }
-          } catch (e) { }
+        if (savedAuth && savedAuth.nonce && savedAuth.sig) {
+          sigNonce = savedAuth.nonce;
         } else {
-          // Binary = PTY output.
-          term.write(new Uint8Array(ev.data));
+          // Fetch a fresh challenge.
+          fetch(basePath + '/api/challenge')
+            .then(function (r) {
+              if (!r.ok) throw new Error('challenge failed: ' + r.status);
+              return r.json();
+            })
+            .then(function (data) {
+              sigNonce = data.nonce;
+              bootLayout();
+            })
+            .catch(function (err) {
+              showError('Connection error: ' + err.message);
+              setTimeout(startAll, 3000);
+            });
+          return;
+        }
+        bootLayout();
+      }
+
+      function bootLayout() {
+        layoutTree = createDefaultLayout();
+
+        // Ensure all pane IDs in the tree have runtime objects.
+        function ensurePanes(node) {
+          if (node.type === 'pane') {
+            if (!panes[node.id]) {
+              var p = createPane(node.cwd || null);
+              node.id = p.id;
+            }
+            return;
+          }
+          for (var i = 0; i < node.children.length; i++) {
+            ensurePanes(node.children[i]);
+          }
+        }
+        ensurePanes(layoutTree);
+
+        // Render layout.
+        renderLayout(terminalContainer, layoutTree);
+
+        // Init terminals for all panes.
+        var ids = getAllPaneIds();
+        for (var i = 0; i < ids.length; i++) {
+          var p = panes[ids[i]];
+          if (p && !p.term) {
+            initPaneTerminal(p);
+          }
+        }
+
+        // Focus first pane.
+        focusPane(ids[0]);
+
+        // Connect command channel.
+        var stored = null;
+        try {
+          var raw2 = localStorage.getItem('ax-auth');
+          if (raw2) stored = JSON.parse(raw2);
+        } catch (e) { }
+        if (stored && stored.nonce && stored.sig) {
+          connectCmd(stored.nonce, stored.sig);
+        } else {
+          connectCmd(sigNonce, '');
         }
       }
 
-      var savedAuth = null;
-      try {
-        var raw = localStorage.getItem('ax-auth');
-        if (raw) savedAuth = JSON.parse(raw);
-      } catch (e) { }
-      if (savedAuth && savedAuth.nonce && savedAuth.sig) {
-        sigNonce = savedAuth.nonce;
-        openWS(savedAuth.nonce, savedAuth.sig);
-        connectCmd(savedAuth.nonce, savedAuth.sig);
-      } else {
-        connect();
-      }
+      startAll();
     })();
   </script>
 </body>
-
-</html>
 
 </html>
