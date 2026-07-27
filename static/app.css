@@ -668,31 +668,50 @@ body {
     height: 100%;
 }
 
-.pane-close {
+.pane-actions {
     position: absolute;
-    top: 4px;
-    right: 4px;
+    top: 0;
+    right: 0;
+    padding: 4px 4px 18px 18px;
+    display: flex;
+    gap: 2px;
+    z-index: 20;
+    opacity: 0;
+    transition: opacity 0.12s;
+    cursor: default;
+}
+
+.pane-actions:hover {
+    opacity: 1;
+}
+
+.pane-actions button {
     width: 22px;
     height: 22px;
     background: rgba(50, 50, 51, 0.85);
     border: 1px solid #555;
     color: #ccc;
     cursor: pointer;
-    font-size: 12px;
-    line-height: 20px;
-    text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     border-radius: 3px;
-    z-index: 20;
-    opacity: 0;
-    transition: opacity 0.15s;
     padding: 0;
+    transition: background 0.12s, border-color 0.12s, color 0.12s;
 }
 
-.pane-container:hover .pane-close {
-    opacity: 1;
+.pane-actions button svg {
+    display: block;
+    pointer-events: none;
 }
 
-.pane-close:hover {
+.pane-actions button:hover {
+    background: #555;
+    border-color: #888;
+    color: #fff;
+}
+
+.pane-actions .pane-close:hover {
     background: #d32f2f;
     border-color: #d32f2f;
     color: #fff;

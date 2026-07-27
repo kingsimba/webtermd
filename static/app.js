@@ -642,16 +642,54 @@
             pane.terminalEl.className = 'pane-terminal';
             pane.container.appendChild(pane.terminalEl);
 
-            // Close button (visible on hover).
+            // Action buttons (visible on hover near top-right corner).
+            var actions = document.createElement('div');
+            actions.className = 'pane-actions';
+
+            var splitDownBtn = document.createElement('button');
+            splitDownBtn.className = 'pane-split-down';
+            splitDownBtn.innerHTML = '<svg viewBox="0 0 16 16" width="14" height="14" fill="none">' +
+                '<rect x="1.5" y="1.5" width="13" height="13" rx="1.5" stroke="currentColor" stroke-width="1.3"/>' +
+                '<rect x="1.5" y="8.3" width="13" height="6.2" rx="0.5" fill="currentColor" opacity="0.45"/>' +
+                '<line x1="1.5" y1="8.3" x2="14.5" y2="8.3" stroke="currentColor" stroke-width="1.3"/>' +
+                '</svg>';
+            splitDownBtn.title = 'Split down (Alt+Shift+-)';
+            splitDownBtn.addEventListener('click', function (e) {
+                e.stopPropagation();
+                focusPane(pane.id);
+                splitPane('vertical');
+            });
+            actions.appendChild(splitDownBtn);
+
+            var splitRightBtn = document.createElement('button');
+            splitRightBtn.className = 'pane-split-right';
+            splitRightBtn.innerHTML = '<svg viewBox="0 0 16 16" width="14" height="14" fill="none">' +
+                '<rect x="1.5" y="1.5" width="13" height="13" rx="1.5" stroke="currentColor" stroke-width="1.3"/>' +
+                '<rect x="8.3" y="1.5" width="6.2" height="13" rx="0.5" fill="currentColor" opacity="0.45"/>' +
+                '<line x1="8.3" y1="1.5" x2="8.3" y2="14.5" stroke="currentColor" stroke-width="1.3"/>' +
+                '</svg>';
+            splitRightBtn.title = 'Split right (Alt+Shift+D)';
+            splitRightBtn.addEventListener('click', function (e) {
+                e.stopPropagation();
+                focusPane(pane.id);
+                splitPane('horizontal');
+            });
+            actions.appendChild(splitRightBtn);
+
             var closeBtn = document.createElement('button');
             closeBtn.className = 'pane-close';
-            closeBtn.textContent = '✕';
+            closeBtn.innerHTML = '<svg viewBox="0 0 16 16" width="14" height="14" fill="none">' +
+                '<line x1="3.5" y1="3.5" x2="12.5" y2="12.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>' +
+                '<line x1="12.5" y1="3.5" x2="3.5" y2="12.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>' +
+                '</svg>';
             closeBtn.title = 'Close pane';
             closeBtn.addEventListener('click', function (e) {
                 e.stopPropagation();
                 closePane(pane.id);
             });
-            pane.container.appendChild(closeBtn);
+            actions.appendChild(closeBtn);
+
+            pane.container.appendChild(actions);
 
             container.appendChild(pane.container);
 
