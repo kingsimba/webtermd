@@ -101,6 +101,7 @@
             termDataDisposable: null,
             termResizeDisposable: null,
             cwd: null,
+            hostname: null,
             isAtShell: true,
             files: [],
             lastListedCWD: '',
@@ -146,7 +147,7 @@
         pane.term = new Terminal({
             cursorBlink: false,
             fontSize: 14,
-            fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+            fontFamily: '"JetBrains Mono", Menlo, Monaco, "Courier New", monospace',
             theme: {
                 background: '#1e1e1e',
                 foreground: '#d4d4d4',
@@ -267,6 +268,13 @@
                 var msg = JSON.parse(ev.data);
                 switch (msg.type) {
                     case 'session':
+                        if (msg.hostname) {
+                            pane.hostname = msg.hostname;
+                            document.title = msg.hostname;
+                            if (pane.id === focusedPaneId) {
+                                updateToolbar();
+                            }
+                        }
                         break;
 
                     case 'cwd':
@@ -346,7 +354,8 @@
         if (p.container) p.container.classList.add('focused');
         if (p.term) p.term.options.cursorBlink = true;
 
-        // Update sidebar to show this pane's cached data.
+        // Update toolbar and sidebar to show this pane's cached data.
+        updateToolbar();
         if (p.cwd) setCWD(p.cwd);
         if (p.files.length > 0) {
             renderFileList(p.lastListedCWD || p.cwd, p.files);
@@ -839,11 +848,26 @@
         }
     }, true);
 
-    // --- toolbar CWD display ---
+    // --- toolbar display ---
+    var hostnameInline = document.getElementById('hostname-inline');
+
+    function updateToolbar() {
+        var fp = getFocusedPane();
+        if (fp) {
+            hostnameInline.textContent = fp.hostname ? fp.hostname + ':' : '';
+            if (fp.cwd) {
+                cwdPath.textContent = fp.cwd;
+                cwdInline.textContent = fp.cwd;
+                cwdInline.title = fp.cwd;
+            }
+        }
+    }
+
     function setCWD(path) {
         cwdPath.textContent = path;
         cwdInline.textContent = path;
         cwdInline.title = path;
+        updateToolbar();
     }
 
     // --- file list (per-pane, follows focus) ---

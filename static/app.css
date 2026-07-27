@@ -1,3 +1,7 @@
+:root {
+    --mono-font: 'JetBrains Mono', 'Menlo', 'Monaco', 'Courier New', monospace;
+}
+
 * {
     margin: 0;
     padding: 0;
@@ -42,11 +46,18 @@ body {
     flex: 1;
 }
 
+#hostname-inline {
+    color: #d4d4d4;
+    font-family: var(--mono-font);
+    font-size: 12px;
+    white-space: nowrap;
+}
+
 #cwd-inline {
     color: #8bc34a;
-    font-family: monospace;
+    font-family: var(--mono-font);
     font-size: 12px;
-    margin-left: 10px;
+    margin-left: 4px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -86,7 +97,7 @@ body {
     color: #ccc;
     display: flex;
     flex-direction: column;
-    font-family: monospace;
+    font-family: var(--mono-font);
     font-size: 13px;
     overflow: hidden;
     transition: width 0.2s, min-width 0.2s;
@@ -178,7 +189,7 @@ body {
     border: 1px solid #555;
     color: #ccc;
     font-size: 12px;
-    font-family: monospace;
+    font-family: var(--mono-font);
     border-radius: 3px;
     outline: none;
     flex-shrink: 0;
@@ -377,7 +388,7 @@ body {
     background: #d32f2f;
     color: #fff;
     padding: 8px 16px;
-    font-family: monospace;
+    font-family: var(--mono-font);
     font-size: 14px;
     display: none;
     z-index: 100;
@@ -424,7 +435,7 @@ body {
 
 #preview-title {
     color: #8bc34a;
-    font-family: monospace;
+    font-family: var(--mono-font);
     font-size: 13px;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -457,7 +468,7 @@ body {
 #preview-body pre {
     margin: 0;
     color: #d4d4d4;
-    font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+    font-family: var(--mono-font);
     font-size: 12px;
     line-height: 1.5;
     white-space: pre-wrap;
@@ -490,7 +501,7 @@ body {
     width: 90%;
     padding: 20px 24px;
     color: #ccc;
-    font-family: monospace;
+    font-family: var(--mono-font);
     font-size: 13px;
 }
 
@@ -535,7 +546,7 @@ body {
     background: #2d2d2d;
     border: 1px solid #555;
     color: #ccc;
-    font-family: monospace;
+    font-family: var(--mono-font);
     font-size: 13px;
     border-radius: 4px;
     outline: none;
@@ -560,7 +571,7 @@ body {
     color: #fff;
     cursor: pointer;
     font-size: 14px;
-    font-family: monospace;
+    font-family: var(--mono-font);
     border-radius: 4px;
 }
 
@@ -580,7 +591,7 @@ body {
     color: #ccc;
     cursor: pointer;
     font-size: 13px;
-    font-family: monospace;
+    font-family: var(--mono-font);
     border-radius: 4px;
 }
 
@@ -727,7 +738,7 @@ body {
 
 #help-header span {
     color: #e0e0e0;
-    font-family: monospace;
+    font-family: var(--mono-font);
     font-size: 14px;
     font-weight: bold;
 }
@@ -757,7 +768,7 @@ body {
 #help-body table {
     width: 100%;
     border-collapse: collapse;
-    font-family: monospace;
+    font-family: var(--mono-font);
     font-size: 13px;
 }
 
@@ -788,7 +799,7 @@ body {
     background: #2d2d2d;
     border: 1px solid #555;
     border-radius: 3px;
-    font-family: monospace;
+    font-family: var(--mono-font);
     font-size: 11px;
     color: #e0e0e0;
     line-height: 1.4;

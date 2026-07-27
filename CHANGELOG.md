@@ -1,6 +1,8 @@
 # Changelog
 
-- 2026-07-27 webtermd: Add help popover with keyboard shortcut reference
+- 2026-07-27 webtermd: Show device hostname in browser title and toolbar
+- 2026-07-27 webtermd: Add terminal-style SVG favicon
+- 2026-07-27 webtermd: Support JetBrains Mono font if available
 - 2026-07-27 webtermd: Add multi-pane split terminal with hotkeys, per-pane file caching, and resize sync
 - 2026-07-27 webtermd: Kill and respawn last pane when its close button is clicked
 - 2026-07-17 webtermd: Embed xterm.js CSS and JS locally instead of loading from CDN

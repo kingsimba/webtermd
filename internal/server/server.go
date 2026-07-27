@@ -754,8 +754,10 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	s.activeSess[rawConn] = sess
 	s.mu.Unlock()
 
+	hostname, _ := os.Hostname()
 	s.wsSendJSON(conn, map[string]string{
-		"type": "session",
+		"type":     "session",
+		"hostname": hostname,
 	})
 
 	defer func() {
