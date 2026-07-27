@@ -202,6 +202,8 @@ body {
 #file-items {
     flex: 1;
     overflow-y: auto;
+    overflow-x: clip;
+    padding: 0 2px;
 }
 
 #sidebar-files .empty-hint {
@@ -216,7 +218,7 @@ body {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 4px 0;
+    padding: 4px 4px;
     border-bottom: 1px solid #333;
     font-size: 12px;
     gap: 6px;
@@ -262,6 +264,12 @@ body {
 
 #sidebar-files .file-item .btn-dl:hover {
     background: #555;
+}
+
+#sidebar-files .file-item.ctx-highlight {
+    background: rgba(139, 195, 74, 0.15);
+    outline: 1px solid #8bc34a;
+    border-radius: 2px;
 }
 
 #sidebar-uploads-header {
@@ -398,6 +406,8 @@ body {
     padding: 4px 0;
     min-width: 180px;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 13px;
 }
 
 #upload-ctx-menu .ctx-item {

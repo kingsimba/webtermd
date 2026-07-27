@@ -1030,7 +1030,7 @@
                     var fileCwd = fpc ? fpc.lastListedCWD || fpc.cwd : '';
                     if (!fileCwd) return;
                     var absPath = fileCwd.replace(/\/$/, '') + '/' + f.name;
-                    showFileContextMenu(e.clientX, e.clientY, f.name, absPath);
+                    showFileContextMenu(e.clientX, e.clientY, f.name, absPath, item);
                 });
 
                 if (isPreviewable(f.name)) {
@@ -1049,19 +1049,6 @@
                     item.appendChild(pvBtn);
                 }
 
-                var dlBtn = document.createElement('button');
-                dlBtn.className = 'btn-dl';
-                dlBtn.textContent = '↓';
-                dlBtn.title = 'Download ' + f.name;
-                dlBtn.addEventListener('click', function () {
-                    var f4 = getFocusedPane();
-                    if (!f4 || !f4.ws || f4.ws.readyState !== WebSocket.OPEN) {
-                        showError('Not connected');
-                        return;
-                    }
-                    f4.ws.send(JSON.stringify({ type: 'download', path: f.name }));
-                });
-                item.appendChild(dlBtn);
             }
 
             fileItems.appendChild(item);
@@ -1319,6 +1306,8 @@
         document.body.appendChild(ctxMenu);
         document.addEventListener('click', function () {
             if (ctxMenu) ctxMenu.style.display = 'none';
+            var hl = document.querySelector('.ctx-highlight');
+            if (hl) hl.classList.remove('ctx-highlight');
         });
     }
 
@@ -1356,26 +1345,43 @@
         showEmptyHint();
     }
 
-    function showFileContextMenu(x, y, name, path) {
+    function showFileContextMenu(x, y, name, path, itemEl) {
         ensureCtxMenu();
         ctxMenu.style.display = 'block';
         ctxMenu.style.left = x + 'px';
         ctxMenu.style.top = y + 'px';
-        ctxMenu.innerHTML = '<div class="ctx-item ctx-danger" data-action="delete-file">Delete ' + escapeHtml(name) + '</div>';
-        ctxMenu.querySelector('.ctx-item').onclick = function () {
-            ctxMenu.style.display = 'none';
-            if (wsCmd && wsCmd.readyState === WebSocket.OPEN) {
-                wsCmd.send(JSON.stringify({ type: 'delete-file', path: path }));
-                // Refresh file list after deletion
-                setTimeout(function () {
+        ctxMenu.innerHTML = '<div class="ctx-item" data-action="download-file">Download</div>' +
+            '<div class="ctx-item ctx-danger" data-action="delete-file">Delete</div>';
+
+        if (itemEl) {
+            var prev = document.querySelector('.ctx-highlight');
+            if (prev) prev.classList.remove('ctx-highlight');
+            itemEl.classList.add('ctx-highlight');
+        }
+
+        var items = ctxMenu.querySelectorAll('.ctx-item');
+        for (var i = 0; i < items.length; i++) {
+            items[i].onclick = function () {
+                var action = this.getAttribute('data-action');
+                ctxMenu.style.display = 'none';
+                if (itemEl) itemEl.classList.remove('ctx-highlight');
+                if (action === 'download-file') {
                     var fp = getFocusedPane();
                     if (fp && fp.ws && fp.ws.readyState === WebSocket.OPEN) {
-                        fp.lastListedCWD = '';
-                        fp.ws.send(JSON.stringify({ type: 'list-files' }));
+                        fp.ws.send(JSON.stringify({ type: 'download', path: name }));
                     }
-                }, 300);
-            }
-        };
+                } else if (action === 'delete-file' && wsCmd && wsCmd.readyState === WebSocket.OPEN) {
+                    wsCmd.send(JSON.stringify({ type: 'delete-file', path: path }));
+                    setTimeout(function () {
+                        var fpp = getFocusedPane();
+                        if (fpp && fpp.ws && fpp.ws.readyState === WebSocket.OPEN) {
+                            fpp.lastListedCWD = '';
+                            fpp.ws.send(JSON.stringify({ type: 'list-files' }));
+                        }
+                    }, 300);
+                }
+            };
+        }
     }
 
     // --- preview ---
