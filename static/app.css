@@ -540,12 +540,21 @@ body {
     background: #1e1e1e;
     border: 1px solid #555;
     border-radius: 6px;
-    max-width: 80vw;
-    max-height: 80vh;
-    width: 700px;
     display: flex;
     flex-direction: column;
     overflow: hidden;
+}
+
+#preview-dialog.text-preview {
+    width: 1000px;
+    max-width: 80vw;
+    max-height: 80vh;
+}
+
+#preview-dialog.image-preview {
+    width: fit-content;
+    max-width: 90vw;
+    max-height: 90vh;
 }
 
 #preview-header {
@@ -639,8 +648,8 @@ body {
 
 #preview-img {
     display: none;
-    max-width: 100%;
-    max-height: 70vh;
+    max-width: calc(90vw - 30px);
+    max-height: calc(90vh - 62px);
     object-fit: contain;
     border-radius: 3px;
 }

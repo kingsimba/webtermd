@@ -1502,6 +1502,7 @@
     var previewTextWrap = document.getElementById('preview-text-wrap');
     var previewText = document.getElementById('preview-text');
     var previewImg = document.getElementById('preview-img');
+    var previewDialog = document.getElementById('preview-dialog');
 
     document.getElementById('preview-close').addEventListener('click', function () {
         previewModal.classList.remove('open');
@@ -1528,9 +1529,11 @@
         previewTextWrap.style.display = 'none';
         previewImg.style.display = 'none';
         if (data && data.type === 'image') {
+            previewDialog.className = 'image-preview';
             previewImg.src = data.url;
             previewImg.style.display = 'block';
         } else {
+            previewDialog.className = 'text-preview';
             var content = data && data.content;
             previewText.className = '';
             previewText.replaceChildren();

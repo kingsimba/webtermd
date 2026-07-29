@@ -1,5 +1,6 @@
 # Changelog
 
+- 2026-07-29 webtermd: Improve text and image preview sizing
 - 2026-07-29 webtermd: Add line numbers to text file previews
 - 2026-07-29 webtermd: Add highlight.js syntax highlighting for inline file preview
 - 2026-07-28 webtermd: Add clickable CWD breadcrumbs and fix filename click targets
