@@ -599,6 +599,12 @@ body {
     word-break: break-all;
 }
 
+#preview-body pre.hljs {
+    background: transparent;
+    padding: 0;
+    overflow-x: visible;
+}
+
 #preview-img {
     display: none;
     max-width: 100%;
