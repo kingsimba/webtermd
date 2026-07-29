@@ -1499,7 +1499,8 @@
     var previewModal = document.getElementById('preview-modal');
     var previewTitle = document.getElementById('preview-title');
     var previewBody = document.getElementById('preview-body');
-    var previewText = previewBody.querySelector('pre');
+    var previewTextWrap = document.getElementById('preview-text-wrap');
+    var previewText = document.getElementById('preview-text');
     var previewImg = document.getElementById('preview-img');
 
     document.getElementById('preview-close').addEventListener('click', function () {
@@ -1524,24 +1525,33 @@
 
     function openPreview(name, data) {
         previewTitle.textContent = name;
-        previewText.style.display = 'none';
+        previewTextWrap.style.display = 'none';
         previewImg.style.display = 'none';
         if (data && data.type === 'image') {
             previewImg.src = data.url;
             previewImg.style.display = 'block';
         } else {
             var content = data && data.content;
-            previewText.textContent = content || '(empty)';
             previewText.className = '';
-            if (content && window.hljs) {
-                var lang = highlightLangFor(name);
+            previewText.replaceChildren();
+            var lines = (content || '(empty)').split('\n');
+            previewText.style.setProperty('--preview-line-number-width', String(lines.length).length + 'ch');
+            var lang = content && window.hljs ? highlightLangFor(name) : null;
+            for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+                var line = document.createElement('span');
+                var code = document.createElement('code');
+                line.className = 'preview-line';
                 if (lang && hljs.getLanguage(lang)) {
-                    // hljs.highlight escapes the input, so innerHTML is safe here
-                    previewText.innerHTML = hljs.highlight(content, { language: lang }).value;
+                    // hljs.highlight escapes the input, so innerHTML is safe here.
+                    code.innerHTML = hljs.highlight(lines[lineIndex], { language: lang }).value;
                     previewText.className = 'hljs';
+                } else {
+                    code.textContent = lines[lineIndex];
                 }
+                line.appendChild(code);
+                previewText.appendChild(line);
             }
-            previewText.style.display = 'block';
+            previewTextWrap.style.display = 'grid';
         }
         previewModal.classList.add('open');
     }
