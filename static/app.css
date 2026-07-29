@@ -589,6 +589,10 @@ body {
     padding: 12px 14px;
 }
 
+#preview-text-wrap {
+    display: grid;
+}
+
 #preview-body pre {
     margin: 0;
     color: #d4d4d4;
@@ -596,10 +600,38 @@ body {
     font-size: 12px;
     line-height: 1.5;
     white-space: pre-wrap;
-    word-break: break-all;
+    overflow-wrap: anywhere;
 }
 
-#preview-body pre.hljs {
+#preview-text {
+    counter-reset: preview-line;
+    --preview-line-number-width: 1ch;
+}
+
+#preview-text .preview-line {
+    display: grid;
+    grid-template-columns: calc(var(--preview-line-number-width) + 25px) minmax(0, 1fr);
+    counter-increment: preview-line;
+}
+
+#preview-text .preview-line::before {
+    content: counter(preview-line);
+    padding-right: 12px;
+    margin-right: 12px;
+    color: #666;
+    border-right: 1px solid #3c3c3c;
+    text-align: right;
+    user-select: none;
+}
+
+#preview-text .preview-line code {
+    min-width: 0;
+    min-height: 1.5em;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+#preview-text.hljs {
     background: transparent;
     padding: 0;
     overflow-x: visible;
