@@ -1469,6 +1469,33 @@
         return !!previewExts[name.slice(dot + 1).toLowerCase()];
     }
 
+    var highlightExtLangs = {
+        'js': 'javascript', 'jsx': 'javascript', 'ts': 'typescript', 'tsx': 'typescript',
+        'py': 'python', 'rb': 'ruby', 'go': 'go', 'rs': 'rust',
+        'c': 'c', 'h': 'c', 'cpp': 'cpp', 'hpp': 'cpp', 'java': 'java',
+        'php': 'php', 'lua': 'lua', 'sql': 'sql',
+        'sh': 'bash', 'bash': 'bash', 'zsh': 'bash', 'fish': 'bash',
+        'json': 'json', 'yaml': 'yaml', 'yml': 'yaml',
+        'xml': 'xml', 'html': 'xml', 'css': 'css', 'md': 'markdown',
+        'diff': 'diff', 'patch': 'diff',
+        'ini': 'ini', 'cfg': 'ini', 'conf': 'ini', 'toml': 'ini',
+        'env': 'ini', 'properties': 'ini', 'editorconfig': 'ini'
+    };
+
+    var highlightNameLangs = {
+        'Makefile': 'makefile', 'Dockerfile': 'dockerfile',
+        '.bashrc': 'bash', '.bash_profile': 'bash', '.profile': 'bash',
+        '.zshrc': 'bash', '.tmux.conf': 'bash',
+        '.gitconfig': 'ini', '.npmrc': 'ini'
+    };
+
+    function highlightLangFor(name) {
+        if (highlightNameLangs[name]) return highlightNameLangs[name];
+        var dot = name.lastIndexOf('.');
+        if (dot < 0) return null;
+        return highlightExtLangs[name.slice(dot + 1).toLowerCase()] || null;
+    }
+
     var previewModal = document.getElementById('preview-modal');
     var previewTitle = document.getElementById('preview-title');
     var previewBody = document.getElementById('preview-body');
@@ -1503,7 +1530,17 @@
             previewImg.src = data.url;
             previewImg.style.display = 'block';
         } else {
-            previewText.textContent = (data && data.content) || '(empty)';
+            var content = data && data.content;
+            previewText.textContent = content || '(empty)';
+            previewText.className = '';
+            if (content && window.hljs) {
+                var lang = highlightLangFor(name);
+                if (lang && hljs.getLanguage(lang)) {
+                    // hljs.highlight escapes the input, so innerHTML is safe here
+                    previewText.innerHTML = hljs.highlight(content, { language: lang }).value;
+                    previewText.className = 'hljs';
+                }
+            }
             previewText.style.display = 'block';
         }
         previewModal.classList.add('open');
