@@ -88,7 +88,90 @@
     var pendingUploads = {};  // filename -> File object (waiting for upload-init ack)
     var basePath = location.pathname.replace(/\/[^/]*$/, '');
     var sigNonce = '';
-    var AUTH_KEY = 'ax-auth-' + basePath;
+
+    function getPathEntry() {
+        try {
+            var raw = localStorage.getItem('webtermd');
+            if (raw) {
+                var map = JSON.parse(raw);
+                return map[basePath] || null;
+            }
+        } catch (e) { }
+        return null;
+    }
+
+    function savePathEntry(entry) {
+        try {
+            var raw = localStorage.getItem('webtermd');
+            var map = raw ? JSON.parse(raw) : {};
+            map[basePath] = entry;
+            localStorage.setItem('webtermd', JSON.stringify(map));
+        } catch (e) { }
+    }
+
+    function clearPathEntry() {
+        try {
+            var raw = localStorage.getItem('webtermd');
+            if (raw) {
+                var map = JSON.parse(raw);
+                delete map[basePath];
+                if (Object.keys(map).length === 0) {
+                    localStorage.removeItem('webtermd');
+                } else {
+                    localStorage.setItem('webtermd', JSON.stringify(map));
+                }
+            }
+        } catch (e) { }
+    }
+
+    function getAuth() {
+        var entry = getPathEntry();
+        if (entry && entry.nonce && entry.sig) return entry;
+        return null;
+    }
+
+    function setAuth(nonce, sig) {
+        var entry = getPathEntry() || {};
+        entry.nonce = nonce;
+        entry.sig = sig;
+        savePathEntry(entry);
+    }
+
+    function clearAuth() {
+        var entry = getPathEntry();
+        if (entry) {
+            delete entry.nonce;
+            delete entry.sig;
+            if (Object.keys(entry).length === 0) {
+                clearPathEntry();
+            } else {
+                savePathEntry(entry);
+            }
+        }
+    }
+
+    function getHistory() {
+        var entry = getPathEntry();
+        return (entry && entry.uploads) ? entry.uploads : [];
+    }
+
+    function setHistory(history) {
+        var entry = getPathEntry() || {};
+        entry.uploads = history;
+        savePathEntry(entry);
+    }
+
+    function clearHistoryStore() {
+        var entry = getPathEntry();
+        if (entry) {
+            delete entry.uploads;
+            if (Object.keys(entry).length === 0) {
+                clearPathEntry();
+            } else {
+                savePathEntry(entry);
+            }
+        }
+    }
 
     // --- multi-pane state ---
     var layoutTree = null;   // recursive {type:'split'|'pane', ...} tree
@@ -193,11 +276,7 @@
     function connectPaneWS(pane) {
         pane.sigOpenFired = false;
         var nonce = sigNonce;
-        var stored = null;
-        try {
-            var raw = localStorage.getItem(AUTH_KEY);
-            if (raw) stored = JSON.parse(raw);
-        } catch (e) { }
+        var stored = getAuth();
 
         if (!nonce && stored && stored.nonce) nonce = stored.nonce;
         var sig = stored ? stored.sig : '';
@@ -267,7 +346,7 @@
                     showSigDialog();
                     return;
                 }
-                try { localStorage.removeItem(AUTH_KEY); } catch (e) { }
+                clearAuth();
                 document.getElementById('sig-error').style.display = 'block';
                 document.getElementById('sig-error').textContent = 'Authentication failed. Check your signature or refresh the nonce.';
                 document.getElementById('sig-overlay').classList.add('open');
@@ -1263,7 +1342,7 @@
         }
         // Check localStorage history
         try {
-            var history = JSON.parse(localStorage['webtermd-uploads-' + location.hostname] || '[]');
+            var history = getHistory();
             for (var i = 0; i < history.length; i++) {
                 if (history[i].path) paths[history[i].path] = true;
             }
@@ -1272,46 +1351,32 @@
     }
 
     // --- upload history (localStorage) ---
-    var HISTORY_KEY = 'webtermd-uploads-' + location.hostname;
     var MAX_HISTORY = 99;
 
     function loadHistory() {
-        var history = [];
-        try {
-            history = JSON.parse(localStorage[HISTORY_KEY] || '[]');
-        } catch (e) { }
+        var history = getHistory();
         for (var i = 0; i < history.length; i++) {
             renderHistoryItem(history[i]);
         }
     }
 
     function saveHistory(entry) {
-        var history = [];
-        try {
-            history = JSON.parse(localStorage[HISTORY_KEY] || '[]');
-        } catch (e) { }
+        var history = getHistory();
         history.unshift(entry);
         if (history.length > MAX_HISTORY) {
             history = history.slice(0, MAX_HISTORY);
         }
-        try {
-            localStorage[HISTORY_KEY] = JSON.stringify(history);
-        } catch (e) { }
+        setHistory(history);
     }
 
     function deleteHistory(id) {
-        var history = [];
-        try {
-            history = JSON.parse(localStorage[HISTORY_KEY] || '[]');
-        } catch (e) { }
+        var history = getHistory();
         history = history.filter(function (h) { return h.id !== id; });
-        try {
-            localStorage[HISTORY_KEY] = JSON.stringify(history);
-        } catch (e) { }
+        setHistory(history);
     }
 
     function clearHistory() {
-        localStorage.removeItem(HISTORY_KEY);
+        clearHistoryStore();
         var items = uploadsList.querySelectorAll('.history');
         for (var i = 0; i < items.length; i++) {
             items[i].parentNode.removeChild(items[i]);
@@ -1748,8 +1813,8 @@
 
         wsCmd.onclose = function () {
             setTimeout(function () {
-                var stored = JSON.parse(localStorage[AUTH_KEY] || '{}');
-                if (stored.nonce && stored.sig) connectCmd(stored.nonce, stored.sig);
+                var stored = getAuth();
+                if (stored && stored.nonce && stored.sig) connectCmd(stored.nonce, stored.sig);
             }, 2000);
         };
     }
@@ -1769,7 +1834,7 @@
         if (!sig) return;
         document.getElementById('sig-overlay').classList.remove('open');
         // Reconnect focused pane with new signature.
-        try { localStorage.setItem(AUTH_KEY, JSON.stringify({ nonce: sigNonce, sig: sig })); } catch (e) { }
+        setAuth(sigNonce, sig);
         var fp = getFocusedPane();
         if (fp) {
             if (fp.ws) try { fp.ws.close(); } catch (e) { }
@@ -1793,11 +1858,7 @@
 
     // --- startup ---
     function startAll() {
-        var savedAuth = null;
-        try {
-            var raw = localStorage.getItem(AUTH_KEY);
-            if (raw) savedAuth = JSON.parse(raw);
-        } catch (e) { }
+        var savedAuth = getAuth();
 
         if (savedAuth && savedAuth.nonce && savedAuth.sig) {
             sigNonce = savedAuth.nonce;
@@ -1855,11 +1916,7 @@
         focusPane(ids[0]);
 
         // Connect command channel.
-        var stored = null;
-        try {
-            var raw2 = localStorage.getItem(AUTH_KEY);
-            if (raw2) stored = JSON.parse(raw2);
-        } catch (e) { }
+        var stored = getAuth();
         if (stored && stored.nonce && stored.sig) {
             connectCmd(stored.nonce, stored.sig);
         } else {
