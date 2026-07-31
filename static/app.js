@@ -88,6 +88,7 @@
     var pendingUploads = {};  // filename -> File object (waiting for upload-init ack)
     var basePath = location.pathname.replace(/\/[^/]*$/, '');
     var sigNonce = '';
+    var AUTH_KEY = 'ax-auth-' + basePath;
 
     // --- multi-pane state ---
     var layoutTree = null;   // recursive {type:'split'|'pane', ...} tree
@@ -194,7 +195,7 @@
         var nonce = sigNonce;
         var stored = null;
         try {
-            var raw = localStorage.getItem('ax-auth');
+            var raw = localStorage.getItem(AUTH_KEY);
             if (raw) stored = JSON.parse(raw);
         } catch (e) { }
 
@@ -266,7 +267,7 @@
                     showSigDialog();
                     return;
                 }
-                try { localStorage.removeItem('ax-auth'); } catch (e) { }
+                try { localStorage.removeItem(AUTH_KEY); } catch (e) { }
                 document.getElementById('sig-error').style.display = 'block';
                 document.getElementById('sig-error').textContent = 'Authentication failed. Check your signature or refresh the nonce.';
                 document.getElementById('sig-overlay').classList.add('open');
@@ -1747,7 +1748,7 @@
 
         wsCmd.onclose = function () {
             setTimeout(function () {
-                var stored = JSON.parse(localStorage['ax-auth'] || '{}');
+                var stored = JSON.parse(localStorage[AUTH_KEY] || '{}');
                 if (stored.nonce && stored.sig) connectCmd(stored.nonce, stored.sig);
             }, 2000);
         };
@@ -1768,7 +1769,7 @@
         if (!sig) return;
         document.getElementById('sig-overlay').classList.remove('open');
         // Reconnect focused pane with new signature.
-        try { localStorage.setItem('ax-auth', JSON.stringify({ nonce: sigNonce, sig: sig })); } catch (e) { }
+        try { localStorage.setItem(AUTH_KEY, JSON.stringify({ nonce: sigNonce, sig: sig })); } catch (e) { }
         var fp = getFocusedPane();
         if (fp) {
             if (fp.ws) try { fp.ws.close(); } catch (e) { }
@@ -1794,7 +1795,7 @@
     function startAll() {
         var savedAuth = null;
         try {
-            var raw = localStorage.getItem('ax-auth');
+            var raw = localStorage.getItem(AUTH_KEY);
             if (raw) savedAuth = JSON.parse(raw);
         } catch (e) { }
 
@@ -1856,7 +1857,7 @@
         // Connect command channel.
         var stored = null;
         try {
-            var raw2 = localStorage.getItem('ax-auth');
+            var raw2 = localStorage.getItem(AUTH_KEY);
             if (raw2) stored = JSON.parse(raw2);
         } catch (e) { }
         if (stored && stored.nonce && stored.sig) {
