@@ -3,6 +3,7 @@ package server
 import (
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -149,6 +150,43 @@ func clientIP(r *http.Request) string {
 		return r.RemoteAddr
 	}
 	return host
+}
+
+// jwtClaims extracts the email and displayName fields from a JWT's payload,
+// without verifying its signature. It's used only to identify who's
+// connecting in logs, not for authentication.
+func jwtClaims(tokenStr string) (email, displayName string) {
+	parts := strings.Split(tokenStr, ".")
+	if len(parts) < 2 {
+		return "", ""
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return "", ""
+	}
+	var claims struct {
+		Email       string `json:"email"`
+		DisplayName string `json:"displayName"`
+	}
+	if json.Unmarshal(payload, &claims) != nil {
+		return "", ""
+	}
+	return claims.Email, claims.DisplayName
+}
+
+// requestIdentity returns a log-friendly description of the client: its IP,
+// plus the email/displayName decoded from the "token" cookie's JWT, if present.
+func requestIdentity(r *http.Request) string {
+	ip := clientIP(r)
+	c, err := r.Cookie("token")
+	if err != nil || c.Value == "" {
+		return ip
+	}
+	email, displayName := jwtClaims(c.Value)
+	if email == "" && displayName == "" {
+		return ip
+	}
+	return fmt.Sprintf("%s (email=%s displayName=%s)", ip, email, displayName)
 }
 
 // allowChallenge enforces a per-IP rate limit of 20 challenges per minute.
@@ -713,10 +751,12 @@ func (s *Server) handleCmdWS(w http.ResponseWriter, r *http.Request) {
 		nonce := r.URL.Query().Get("nonce")
 		signature := r.URL.Query().Get("signature")
 		if nonce == "" || signature == "" {
+			log.Printf("cmd ws auth failed (missing nonce/signature): %s", requestIdentity(r))
 			http.Error(w, "missing nonce or signature", http.StatusBadRequest)
 			return
 		}
 		if !s.auth.Verify(nonce, signature) {
+			log.Printf("cmd ws auth failed (invalid signature): %s", requestIdentity(r))
 			http.Error(w, "authentication failed", http.StatusUnauthorized)
 			return
 		}
@@ -730,6 +770,10 @@ func (s *Server) handleCmdWS(w http.ResponseWriter, r *http.Request) {
 	}
 	conn := &wsConn{Conn: rawConn}
 	defer rawConn.Close()
+
+	ip := requestIdentity(r)
+	log.Printf("cmd ws connected: %s", ip)
+	defer log.Printf("cmd ws disconnected: %s", ip)
 
 	if wsNonce != "" {
 		nonceStop := make(chan struct{})
@@ -790,10 +834,12 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		nonce := r.URL.Query().Get("nonce")
 		signature := r.URL.Query().Get("signature")
 		if nonce == "" || signature == "" {
+			log.Printf("terminal ws auth failed (missing nonce/signature): %s", requestIdentity(r))
 			http.Error(w, "missing nonce or signature", http.StatusBadRequest)
 			return
 		}
 		if !s.auth.Verify(nonce, signature) {
+			log.Printf("terminal ws auth failed (invalid signature): %s", requestIdentity(r))
 			http.Error(w, "authentication failed", http.StatusUnauthorized)
 			return
 		}
@@ -807,6 +853,10 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	}
 	conn := &wsConn{Conn: rawConn}
 	defer rawConn.Close()
+
+	ip := requestIdentity(r)
+	log.Printf("terminal ws connected: %s", ip)
+	defer log.Printf("terminal ws disconnected: %s", ip)
 
 	// Extend the nonce TTL periodically while the connection stays alive.
 	if wsNonce != "" {
