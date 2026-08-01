@@ -1,6 +1,6 @@
 # webtermd
 
-> A lightweight edge daemon that brings your terminal to the browser — with an integrated file manager, SSH authentication, and zero-dependency deployment.
+> A lightweight edge daemon that brings your terminal to the browser — with an integrated file manager/editor, SSH authentication.
 
 <div align="center">
 
@@ -9,7 +9,20 @@
 
 </div>
 
-![](./docs/screenshot.png)
+<figure>
+  <img src="./docs/screenshot.png" alt="Split Screen">
+  <figcaption>Split Screen</figcaption>
+</figure>
+
+<figure>
+  <img src="./docs/editor.png" alt="File Editor">
+  <figcaption>File Editor</figcaption>
+</figure>
+
+<figure>
+  <img src="./docs/image-preview.png" alt="Image Preview">
+  <figcaption>Image Preview</figcaption>
+</figure>
 
 ![](./docs/screen-record.gif)
 
@@ -20,8 +33,10 @@
 curl -LO https://github.com/kingsimba/webtermd/releases/latest/download/webtermd
 chmod +x webtermd
 
-# Run in no-auth mode — open http://localhost:8080 and you're in
+# Run in no-auth mode
 ./webtermd -no-auth
+
+# open http://localhost:8080 and you're in
 ```
 
 > **That's it.** No config files, no dependencies, no setup. Your terminal is live in the browser.
@@ -56,7 +71,8 @@ webtermd runs as a specific Linux user (e.g. via systemd `User=`). It reads that
 
 - **Live directory sync** — the file list on the right mirrors the terminal's current working directory in real time
 - **Folder navigation** — double-click any folder to step into it, or click the parent (`..`) entry to go back
-- **Instant preview** — click any file to preview its contents directly in the browser
+- **Instant preview with syntax highlighting** — click any file to view its contents with syntax highlighting in the browser
+- **Built-in text editor** — edit text files directly in the browser with unsaved-change guards
 - **One-click download** — click the download button to save any file to your local machine
 - **Drag-and-drop upload** — drag files from your desktop onto the terminal to upload them into the current working directory
 
