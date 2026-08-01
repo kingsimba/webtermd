@@ -26,9 +26,9 @@ Returns a one-time nonce for WebSocket authentication.
 
 The nonce is a base64-encoded random string. It expires after 5 minutes of inactivity — each successful verification extends the expiry, so the same nonce+signature pair can be reused across page refreshes while the session stays active.
 
-### GET /api/files/access
+### GET /files/:filename
 
-Check whether a text file can be replaced by `PUT /api/files`. The server performs the same authentication and path validation, then verifies it can create and remove a temporary file in the target directory. Clients should call this immediately before entering edit mode.
+Retrieve a file preview. `filename` is the single file name relative to the directory given by `path`. Text files return JSON content and whether they can be replaced with `PUT /files/:filename`; image files return their original bytes with an image `Content-Type`. The server resolves `filename` beneath `path` and rejects invalid filenames, directories, symlinks, text files larger than 128 KiB, binary text, and invalid UTF-8 text. Image files may use the `png`, `jpg`, `jpeg`, `gif`, `webp`, `svg`, `bmp`, or `ico` extensions.
 
 **Authentication headers**
 
@@ -41,38 +41,61 @@ Check whether a text file can be replaced by `PUT /api/files`. The server perfor
 
 | Parameter | Description                                            |
 | --------- | ------------------------------------------------------ |
-| `cwd`     | Absolute current working directory of the focused pane |
-| `path`    | Relative path to the file within `cwd`                 |
+| `path`    | Absolute current working directory of the focused pane |
 
-**Response** `200 OK`
+**Text response** `200 OK`
 
 ```json
-{ "path": "nginx.conf", "writable": true }
+{
+  "path": "config.ini",
+  "content": "[server]\nhost=localhost\nport=8080\n",
+  "writable": true
+}
 ```
 
-The endpoint rejects paths that escape `cwd`, directories, binary files, and files larger than 1 MiB. It returns `403 Forbidden` when the target directory cannot create a replacement file.
+`writable` is `true` only when the server can create and remove a temporary replacement file in the target directory. A `false` value still returns the readable preview but clients must present it as read-only.
 
-### PUT /api/files
+**Image response** `200 OK`
 
-Atomically replace a text file. The server rejects paths that escape `cwd`, directories, binary files, and files larger than 1 MiB. It writes a temporary file in the target directory, preserves the target's permission bits, syncs it, and renames it over the original file.
+The response body contains the image bytes. `Content-Type` is the image MIME type inferred from the file extension.
 
-**Authentication headers**: `X-Webtermd-Nonce` and `X-Webtermd-Signature`, as described for `GET /api/files/access`.
+**Caching**
+
+Responses include an `ETag` derived from the file modification time and size, plus `Cache-Control: private, max-age=0, must-revalidate`. Send the returned ETag in `If-None-Match` to receive `304 Not Modified` when the file has not changed.
+
+**Errors**
+
+| Status | Description                                    |
+| ------ | ---------------------------------------------- |
+| 400    | Missing or invalid path, or path escapes `cwd` |
+| 401    | Missing or invalid authentication headers      |
+| 404    | File not found                                 |
+| 413    | Text file exceeds the 128 KiB preview limit    |
+| 415    | Text file is binary or is not valid UTF-8      |
+
+### PUT /files/:filename
+
+Atomically replace the file named by `filename` in the directory given by `path`. The server rejects invalid filenames, directories, binary files, and files larger than 1 MiB. It writes a temporary file in the target directory, preserves the target's permission bits, syncs it, and renames it over the original file.
+
+**Authentication headers**: `X-Webtermd-Nonce` and `X-Webtermd-Signature`, as described for `GET /files/:filename`.
+
+**Query parameters**
+
+| Parameter | Description                                            |
+| --------- | ------------------------------------------------------ |
+| `path`    | Absolute current working directory of the focused pane |
 
 **Request body**
 
 ```json
 {
-  "cwd": "/home/user/projects",
-  "path": "nginx.conf",
   "content": "events {}\nhttp {}\n"
 }
 ```
 
-| Field     | Description                                            |
-| --------- | ------------------------------------------------------ |
-| `cwd`     | Absolute current working directory of the focused pane |
-| `path`    | Relative path to the file within `cwd`                 |
-| `content` | Replacement UTF-8 text, at most 1 MiB                  |
+| Field     | Description                           |
+| --------- | ------------------------------------- |
+| `content` | Replacement UTF-8 text, at most 1 MiB |
 
 **Response** `200 OK`
 
@@ -228,7 +251,7 @@ Two message types flow over the same WebSocket:
 
 Binary messages are raw PTY I/O — they flow directly between xterm.js and the bash process.
 
-Text messages are JSON with a `type` field. They carry control-plane data (resize, CWD updates, file listings, downloads, previews).
+Text messages are JSON with a `type` field. They carry control-plane data (resize, CWD updates, file listings, downloads).
 
 Upload operations (`upload-init`, `upload-commit`, `upload-status`, `upload-cancel`) are handled by the command channel — see `/ws/cmd` below.
 
@@ -354,16 +377,6 @@ Request a one-time download URL for a file relative to the current working direc
 ```
 
 Server responds with `download-ready` or `download-error`.
-
-##### preview
-
-Request a preview of a file relative to the current working directory. For text files, the server reads the file and returns its content inline. Files larger than 128 KiB are rejected. For image files (png, jpg, jpeg, gif, webp, svg, bmp, ico), the server generates a one-time download URL.
-
-```json
-{ "type": "preview", "path": "config.ini" }
-```
-
-Server responds with `preview-content`, `preview-image`, or `preview-error`.
 
 ##### restore-cwd
 
@@ -553,48 +566,6 @@ An error occurred preparing the download.
 
 ```json
 { "type": "download-error", "message": "path escapes working directory" }
-```
-
-##### preview-content
-
-Response to `preview`. Contains the file content.
-
-```json
-{
-  "type": "preview-content",
-  "path": "config.ini",
-  "content": "[server]\nhost=localhost\nport=8080\n"
-}
-```
-
-| Field     | Description                   |
-| --------- | ----------------------------- |
-| `path`    | Requested file path           |
-| `content` | Full file content as a string |
-
-##### preview-image
-
-Response to `preview` for image files. Contains a one-time download URL that the client can render in an `<img>` tag.
-
-```json
-{
-  "type": "preview-image",
-  "path": "screenshot.png",
-  "url": "/api/download/a1b2c3d4e5f6..."
-}
-```
-
-| Field  | Description           |
-| ------ | --------------------- |
-| `path` | Requested file path   |
-| `url`  | One-time download URL |
-
-##### preview-error
-
-An error occurred reading the file for preview.
-
-```json
-{ "type": "preview-error", "message": "file too large for preview" }
 ```
 
 ---

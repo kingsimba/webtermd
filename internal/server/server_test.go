@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -181,6 +182,10 @@ func TestStaticFileServing(t *testing.T) {
 }
 
 func authenticatedFileRequest(t *testing.T, srv *httptest.Server, priv *rsa.PrivateKey, method, requestURL string, body []byte) *http.Response {
+	return authenticatedFileRequestWithHeaders(t, srv, priv, method, requestURL, body, nil)
+}
+
+func authenticatedFileRequestWithHeaders(t *testing.T, srv *httptest.Server, priv *rsa.PrivateKey, method, requestURL string, body []byte, headers http.Header) *http.Response {
 	t.Helper()
 
 	challenge, err := http.Get(srv.URL + "/api/challenge")
@@ -200,6 +205,11 @@ func authenticatedFileRequest(t *testing.T, srv *httptest.Server, priv *rsa.Priv
 	}
 	req.Header.Set("X-Webtermd-Nonce", challengeBody.Nonce)
 	req.Header.Set("X-Webtermd-Signature", signNonce(priv, challengeBody.Nonce))
+	for key, values := range headers {
+		for _, value := range values {
+			req.Header.Add(key, value)
+		}
+	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -220,15 +230,11 @@ func TestFileAPISave(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	putBody, err := json.Marshal(map[string]string{
-		"cwd":     cwd,
-		"path":    "config.yaml",
-		"content": "enabled: false\n",
-	})
+	putBody, err := json.Marshal(map[string]string{"content": "enabled: false\n"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp := authenticatedFileRequest(t, srv, priv, http.MethodPut, srv.URL+"/api/files", putBody)
+	resp := authenticatedFileRequest(t, srv, priv, http.MethodPut, srv.URL+"/files/config.yaml?path="+url.QueryEscape(cwd), putBody)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("PUT: expected 200, got %d", resp.StatusCode)
@@ -249,29 +255,109 @@ func TestFileAPISave(t *testing.T) {
 	}
 }
 
-func TestFileAPIAccess(t *testing.T) {
+func TestFileAPIPreview(t *testing.T) {
 	srv, priv, cleanup := setupTestServer(t)
 	defer cleanup()
 
 	cwd := t.TempDir()
-	if err := os.WriteFile(filepath.Join(cwd, "config.py"), []byte("enabled = True\n"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(cwd, "config.ini"), []byte("[server]\nhost=localhost\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	requestURL := srv.URL + "/api/files/access?cwd=" + url.QueryEscape(cwd) + "&path=config.py"
-	resp := authenticatedFileRequest(t, srv, priv, http.MethodGet, requestURL, nil)
+	if err := os.WriteFile(filepath.Join(cwd, "image.png"), []byte("png data"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	previewURL := srv.URL + "/files/config.ini?path=" + url.QueryEscape(cwd)
+	resp := authenticatedFileRequest(t, srv, priv, http.MethodGet, previewURL, nil)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d", resp.StatusCode)
+		t.Fatalf("text preview: expected 200, got %d", resp.StatusCode)
 	}
-	var body struct {
+	var textPreview struct {
 		Path     string `json:"path"`
+		Content  string `json:"content"`
 		Writable bool   `json:"writable"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+	if err := json.NewDecoder(resp.Body).Decode(&textPreview); err != nil {
 		t.Fatal(err)
 	}
-	if body.Path != "config.py" || !body.Writable {
-		t.Fatalf("unexpected access response: %#v", body)
+	if textPreview.Path != "config.ini" || textPreview.Content != "[server]\nhost=localhost\n" || !textPreview.Writable {
+		t.Fatalf("unexpected text preview: %#v", textPreview)
+	}
+	etag := resp.Header.Get("ETag")
+	if etag == "" {
+		t.Fatal("text preview did not include an ETag")
+	}
+	if cacheControl := resp.Header.Get("Cache-Control"); cacheControl != "private, max-age=0, must-revalidate" {
+		t.Fatalf("unexpected Cache-Control: %q", cacheControl)
+	}
+
+	cachedResp := authenticatedFileRequestWithHeaders(t, srv, priv, http.MethodGet, previewURL, nil, http.Header{"If-None-Match": []string{etag}})
+	defer cachedResp.Body.Close()
+	if cachedResp.StatusCode != http.StatusNotModified {
+		t.Fatalf("conditional preview: expected 304, got %d", cachedResp.StatusCode)
+	}
+	if data, err := io.ReadAll(cachedResp.Body); err != nil || len(data) != 0 {
+		t.Fatalf("conditional preview unexpectedly included a body: %q, %v", data, err)
+	}
+
+	imageURL := srv.URL + "/files/image.png?path=" + url.QueryEscape(cwd)
+	resp = authenticatedFileRequest(t, srv, priv, http.MethodGet, imageURL, nil)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("image preview: expected 200, got %d", resp.StatusCode)
+	}
+	if contentType := resp.Header.Get("Content-Type"); !strings.HasPrefix(contentType, "image/png") {
+		t.Fatalf("expected image/png content type, got %q", contentType)
+	}
+	image, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(image) != "png data" {
+		t.Fatalf("unexpected image preview: %q", image)
+	}
+}
+
+func TestFileAPIPreviewRejectsUnsafeRequests(t *testing.T) {
+	srv, priv, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	cwd := t.TempDir()
+	if err := os.WriteFile(filepath.Join(cwd, "binary.txt"), []byte{'a', 0, 'b'}, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cwd, "large.txt"), []byte(strings.Repeat("x", maxPreviewFileSize+1)), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	unauthenticated, err := http.Get(srv.URL + "/files/binary.txt?path=" + url.QueryEscape(cwd))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unauthenticated.StatusCode != http.StatusUnauthorized {
+		unauthenticated.Body.Close()
+		t.Fatalf("missing credentials: expected 401, got %d", unauthenticated.StatusCode)
+	}
+	unauthenticated.Body.Close()
+
+	for _, testCase := range []struct {
+		name string
+		filename string
+		want int
+	}{
+		{name: "invalid filename", filename: "..%5Coutside", want: http.StatusBadRequest},
+		{name: "binary", filename: "binary.txt", want: http.StatusUnsupportedMediaType},
+		{name: "oversized", filename: "large.txt", want: http.StatusRequestEntityTooLarge},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			requestURL := srv.URL + "/files/" + testCase.filename + "?path=" + url.QueryEscape(cwd)
+			resp := authenticatedFileRequest(t, srv, priv, http.MethodGet, requestURL, nil)
+			defer resp.Body.Close()
+			if resp.StatusCode != testCase.want {
+				t.Fatalf("expected %d, got %d", testCase.want, resp.StatusCode)
+			}
+		})
 	}
 }
 
@@ -284,7 +370,7 @@ func TestFileAPIRejectsUnsafeRequests(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	unauthenticated, err := http.NewRequest(http.MethodPut, srv.URL+"/api/files", bytes.NewBufferString(`{}`))
+	unauthenticated, err := http.NewRequest(http.MethodPut, srv.URL+"/files/binary?path="+url.QueryEscape(cwd), bytes.NewBufferString(`{}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -300,20 +386,19 @@ func TestFileAPIRejectsUnsafeRequests(t *testing.T) {
 
 	cases := []struct {
 		name string
-		path string
+		filename string
 		want int
 	}{
-		{name: "traversal", path: "../outside", want: http.StatusBadRequest},
-		{name: "directory", path: ".", want: http.StatusBadRequest},
-		{name: "binary", path: "binary", want: http.StatusUnsupportedMediaType},
+		{name: "invalid filename", filename: "..%5Coutside", want: http.StatusBadRequest},
+		{name: "binary", filename: "binary", want: http.StatusUnsupportedMediaType},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
-			body, err := json.Marshal(map[string]string{"cwd": cwd, "path": testCase.path, "content": "updated\n"})
+			body, err := json.Marshal(map[string]string{"content": "updated\n"})
 			if err != nil {
 				t.Fatal(err)
 			}
-			resp := authenticatedFileRequest(t, srv, priv, http.MethodPut, srv.URL+"/api/files", body)
+			resp := authenticatedFileRequest(t, srv, priv, http.MethodPut, srv.URL+"/files/"+testCase.filename+"?path="+url.QueryEscape(cwd), body)
 			defer resp.Body.Close()
 			if resp.StatusCode != testCase.want {
 				t.Fatalf("expected %d, got %d", testCase.want, resp.StatusCode)
@@ -321,15 +406,11 @@ func TestFileAPIRejectsUnsafeRequests(t *testing.T) {
 		})
 	}
 
-	overLimit, err := json.Marshal(map[string]string{
-		"cwd":     cwd,
-		"path":    "binary",
-		"content": strings.Repeat("x", maxEditorFileSize+1),
-	})
+	overLimit, err := json.Marshal(map[string]string{"content": strings.Repeat("x", maxEditorFileSize+1)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp := authenticatedFileRequest(t, srv, priv, http.MethodPut, srv.URL+"/api/files", overLimit)
+	resp := authenticatedFileRequest(t, srv, priv, http.MethodPut, srv.URL+"/files/binary?path="+url.QueryEscape(cwd), overLimit)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusRequestEntityTooLarge {
 		t.Fatalf("oversized content: expected 413, got %d", resp.StatusCode)

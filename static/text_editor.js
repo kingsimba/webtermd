@@ -17,6 +17,12 @@
         var normalizing = false;
         var indentUnit = '    ';
 
+        function closePreview() {
+            if (image.src.indexOf('blob:') === 0) URL.revokeObjectURL(image.src);
+            image.removeAttribute('src');
+            modal.classList.remove('open');
+        }
+
         function languageFor(name) {
             var names = {
                 'Makefile': 'makefile', 'Dockerfile': 'dockerfile',
@@ -291,19 +297,6 @@
             return { 'X-Webtermd-Nonce': auth.nonce, 'X-Webtermd-Signature': auth.sig };
         }
 
-        function enableSave() {
-            if (!cwd || cwd === '-') return;
-            var currentPath = path;
-            var currentCwd = cwd;
-            fetch(options.basePath + '/api/files/access?cwd=' + encodeURIComponent(cwd) + '&path=' + encodeURIComponent(path), {
-                headers: requestHeaders()
-            }).then(function (response) {
-                if (!response.ok || path !== currentPath || cwd !== currentCwd) return;
-                text.contentEditable = 'true';
-                save.style.display = '';
-            }).catch(function () { });
-        }
-
         function saveContent() {
             var content = editorContent();
             if (languageFor(path) === 'json') {
@@ -317,9 +310,9 @@
             save.disabled = true;
             var headers = requestHeaders();
             headers['Content-Type'] = 'application/json';
-            fetch(options.basePath + '/api/files', {
+            fetch(options.basePath + '/files/' + encodeURIComponent(path) + '?path=' + encodeURIComponent(cwd), {
                 method: 'PUT', headers: headers,
-                body: JSON.stringify({ cwd: cwd, path: path, content: content })
+                body: JSON.stringify({ content: content })
             }).then(function (response) {
                 if (response.ok) return response.json();
                 return response.json().then(function (result) {
@@ -348,16 +341,18 @@
             render(content, selection);
             normalizing = false;
         });
-        document.getElementById('preview-close').addEventListener('click', function () { modal.classList.remove('open'); });
+        document.getElementById('preview-close').addEventListener('click', closePreview);
         save.addEventListener('click', saveContent);
         modal.addEventListener('click', function (event) {
-            if (event.target === modal) modal.classList.remove('open');
+            if (event.target === modal) closePreview();
         });
         document.addEventListener('keydown', function (event) {
-            if (event.key === 'Escape' && modal.classList.contains('open')) modal.classList.remove('open');
+            if (event.key === 'Escape' && modal.classList.contains('open')) closePreview();
         });
 
         this.open = function (name, data, currentCwd) {
+            if (image.src.indexOf('blob:') === 0) URL.revokeObjectURL(image.src);
+            image.removeAttribute('src');
             title.textContent = name;
             textWrap.style.display = 'none';
             image.style.display = 'none';
@@ -379,7 +374,10 @@
                 render(originalContent);
                 textWrap.style.display = 'grid';
                 status.style.display = 'block';
-                enableSave();
+                if (data && data.writable) {
+                    text.contentEditable = 'true';
+                    save.style.display = '';
+                }
             }
             modal.classList.add('open');
         };

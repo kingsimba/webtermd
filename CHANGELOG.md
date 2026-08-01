@@ -1,6 +1,7 @@
 # Changelog
 
 - 2026-08-01 webtermd: Add authenticated text file editing with indentation support
+- 2026-08-01 webtermd: Move file preview from WebSocket to REST GET with cache control and conditional 304
 - 2026-08-01 webtermd: Fix directory click sending keystrokes when not at shell prompt
 - 2026-07-31 webtermd: Scope auth localStorage key by path to avoid collisions behind proxy
 - 2026-07-29 webtermd: Improve text and image preview sizing

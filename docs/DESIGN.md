@@ -28,13 +28,13 @@ A single WebSocket carries two lanes: raw PTY bytes (bidirectional binary) and J
 
 ## REST for Independent Request/Response Operations
 
-Use the WebSocket for long-lived terminal I/O and server-pushed state, but add independent operations as HTTP endpoints when they fit a request/response model. File editing is the first example: text preview arrives over the existing WebSocket because it is initiated from the file-list interaction and is naturally a server-to-client response, while `GET /api/files/access` and `PUT /api/files` are standalone HTTP operations.
+Use the WebSocket for long-lived terminal I/O and server-pushed state, but add independent operations as HTTP endpoints when they fit a request/response model. File editing uses `GET /files/<filename>?path=<cwd>` to retrieve a file and its replacement capability, and `PUT /files/<filename>?path=<cwd>` to save it. File-list updates remain on the WebSocket because they are server-pushed state tied to the active terminal session.
 
 **Why REST instead of a new WebSocket command:** Conventional HTTP semantics make contracts clear: retrieval and capability checks use `GET`, idempotent replacement uses `PUT`, and status codes communicate validation or permission failures. This avoids growing the shared PTY/control protocol for operations that do not need a persistent channel, supports independent retries, and makes the API usable by future non-browser clients.
 
 **Authorization:** REST endpoints reuse the signed challenge currently held for the browser's WebSocket session. Each request sends `X-Webtermd-Nonce` and `X-Webtermd-Signature`; the server verifies the signature against `authorized_keys` with the same verifier as the WebSocket upgrade. The nonce remains valid while it is active, so independent API calls do not need a second signing prompt. Requests without valid headers are rejected before performing the operation.
 
-**Operation-specific safety:** Each REST endpoint validates its own inputs and applies its own authorization boundary. For file editing, the client supplies the focused pane's CWD and a relative path. The server resolves that path beneath the CWD and rejects escaping paths, directories, symlinks, binary or invalid UTF-8 content, and files larger than 1 MiB. Saves write and sync a temporary file in the destination directory, retain the original mode bits, then rename it atomically over the target.
+**Operation-specific safety:** Each REST endpoint validates its own inputs and applies its own authorization boundary. For file editing, the client supplies the focused pane's CWD as `path` and the file name as a route segment. The server resolves the file name beneath the CWD and rejects invalid names, directories, and symlinks. Text previews reject binary or invalid UTF-8 content and files larger than 128 KiB; saving uses the same text checks with a 1 MiB limit. Saves write and sync a temporary file in the destination directory, retain the original mode bits, then rename it atomically over the target.
 
 ---
 

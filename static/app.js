@@ -423,17 +423,6 @@
                         showError('Download: ' + msg.message);
                         break;
 
-                    case 'preview-content':
-                        textEditor.open(msg.path, { type: 'text', content: msg.content }, pane.lastListedCWD || pane.cwd);
-                        break;
-
-                    case 'preview-image':
-                        textEditor.open(msg.path, { type: 'image', url: basePath + msg.url }, pane.lastListedCWD || pane.cwd);
-                        break;
-
-                    case 'preview-error':
-                        showError('Preview: ' + msg.message);
-                        break;
                 }
             } catch (e) { }
         } else {
@@ -1181,11 +1170,35 @@
                     makeDragSafeClick(nameText, function (e) {
                         e.stopPropagation();
                         var f3 = getFocusedPane();
-                        if (!f3 || !f3.ws || f3.ws.readyState !== WebSocket.OPEN) {
+                        var auth = getAuth() || { nonce: '', sig: '' };
+                        var previewCwd = f3 && (f3.lastListedCWD || f3.cwd);
+                        if (!f3 || !previewCwd) {
                             showError('Not connected');
                             return;
                         }
-                        f3.ws.send(JSON.stringify({ type: 'preview', path: f.name }));
+                        var previewURL = basePath + '/files/' + encodeURIComponent(f.name) + '?path=' + encodeURIComponent(previewCwd);
+                        fetch(previewURL, {
+                            headers: {
+                                'X-Webtermd-Nonce': auth.nonce,
+                                'X-Webtermd-Signature': auth.sig
+                            }
+                        }).then(function (response) {
+                            if (!response.ok) {
+                                return response.json().catch(function () { return {}; }).then(function (result) {
+                                    return Promise.reject(new Error(result.error || 'preview failed'));
+                                });
+                            }
+                            if (response.headers.get('Content-Type').indexOf('image/') === 0) {
+                                return response.blob().then(function (image) {
+                                    textEditor.open(f.name, { type: 'image', url: URL.createObjectURL(image) }, previewCwd);
+                                });
+                            }
+                            return response.json().then(function (result) {
+                                textEditor.open(result.path, { type: 'text', content: result.content, writable: result.writable }, previewCwd);
+                            });
+                        }).catch(function (exception) {
+                            showError('Preview: ' + exception.message);
+                        });
                     });
                 }
 

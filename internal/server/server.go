@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"mime"
 	"net"
 	"net/http"
 	"os"
@@ -105,8 +106,7 @@ func New(a *auth.Authenticator, staticFS fs.FS, noAuth bool, shell string) *Serv
 	s.recoverUploads()
 
 	s.mux.HandleFunc("/api/challenge", s.handleChallenge)
-	s.mux.HandleFunc("/api/files/access", s.handleFileAccess)
-	s.mux.HandleFunc("/api/files", s.handleFiles)
+	s.mux.HandleFunc("/files/{filename}", s.handleFile)
 	s.mux.HandleFunc("/ws", s.handleWS)
 	s.mux.HandleFunc("/ws/cmd", s.handleCmdWS)
 	s.mux.HandleFunc("/api/upload/", s.handleUpload)
@@ -138,7 +138,10 @@ func (s *Server) handleChallenge(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"nonce": nonce})
 }
 
-const maxEditorFileSize = 1 << 20
+const (
+	maxEditorFileSize  = 1 << 20
+	maxPreviewFileSize = 128 << 10
+)
 
 func (s *Server) authenticateRequest(w http.ResponseWriter, r *http.Request) bool {
 	if s.noAuth {
@@ -166,15 +169,15 @@ func isWithinDir(root, path string) bool {
 	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(os.PathSeparator)) && !filepath.IsAbs(relative)
 }
 
-func resolveEditorFile(cwd, path string) (string, os.FileInfo, error) {
-	if !filepath.IsAbs(cwd) || path == "" || filepath.IsAbs(path) {
+func resolveFileWithinCWD(cwd, filename string) (string, os.FileInfo, error) {
+	if !filepath.IsAbs(cwd) || filename == "" || filename == "." || filename == ".." || strings.ContainsAny(filename, `/\\`) {
 		return "", nil, fmt.Errorf("invalid path")
 	}
 	root, err := filepath.EvalSymlinks(cwd)
 	if err != nil {
 		return "", nil, fmt.Errorf("invalid working directory")
 	}
-	resolved := filepath.Clean(filepath.Join(root, path))
+	resolved := filepath.Clean(filepath.Join(root, filename))
 	if !isWithinDir(root, resolved) {
 		return "", nil, fmt.Errorf("path escapes working directory")
 	}
@@ -191,9 +194,9 @@ func resolveEditorFile(cwd, path string) (string, os.FileInfo, error) {
 	return resolved, linkInfo, nil
 }
 
-func validateEditorFile(path string, info os.FileInfo) (int, string) {
-	if info.Size() > maxEditorFileSize {
-		return http.StatusRequestEntityTooLarge, "file exceeds 1 MiB editor limit"
+func validateTextFile(path string, info os.FileInfo, limit int64, limitMessage string) (int, string) {
+	if info.Size() > limit {
+		return http.StatusRequestEntityTooLarge, limitMessage
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -205,17 +208,36 @@ func validateEditorFile(path string, info os.FileInfo) (int, string) {
 	return 0, ""
 }
 
-func (s *Server) handleFileAccess(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		w.Header().Set("Allow", http.MethodGet)
+func validateEditorFile(path string, info os.FileInfo) (int, string) {
+	return validateTextFile(path, info, maxEditorFileSize, "file exceeds 1 MiB editor limit")
+}
+
+func fileETag(info os.FileInfo) string {
+	return fmt.Sprintf(`"%x-%x"`, info.ModTime().UnixNano(), info.Size())
+}
+
+func etagMatches(header, etag string) bool {
+	for _, candidate := range strings.Split(header, ",") {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "*" || candidate == etag {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodPut {
+		w.Header().Set("Allow", "GET, PUT")
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	if !s.authenticateRequest(w, r) {
 		return
 	}
+	filename := r.PathValue("filename")
 	path := r.URL.Query().Get("path")
-	resolved, info, err := resolveEditorFile(r.URL.Query().Get("cwd"), path)
+	resolved, info, err := resolveFileWithinCWD(path, filename)
 	if err != nil {
 		status := http.StatusBadRequest
 		if os.IsNotExist(err) {
@@ -224,30 +246,46 @@ func (s *Server) handleFileAccess(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, status, err.Error())
 		return
 	}
-	if status, message := validateEditorFile(resolved, info); status != 0 {
+	if r.Method == http.MethodPut {
+		s.handleFileReplace(w, r, filename, resolved, info)
+		return
+	}
+	etag := fileETag(info)
+	w.Header().Set("ETag", etag)
+	w.Header().Set("Cache-Control", "private, max-age=0, must-revalidate")
+	if etagMatches(r.Header.Get("If-None-Match"), etag) {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	if isImageExt(filepath.Ext(resolved)) {
+		contentType := mime.TypeByExtension(strings.ToLower(filepath.Ext(resolved)))
+		if contentType == "" {
+			writeJSONError(w, http.StatusUnsupportedMediaType, "unsupported image type")
+			return
+		}
+		w.Header().Set("Content-Type", contentType)
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		http.ServeFile(w, r, resolved)
+		return
+	}
+	if status, message := validateTextFile(resolved, info, maxPreviewFileSize, "file exceeds 128 KiB preview limit"); status != 0 {
 		writeJSONError(w, status, message)
 		return
 	}
-	if !canWriteToDir(filepath.Dir(resolved)) {
-		writeJSONError(w, http.StatusForbidden, "target directory is not writable")
+	data, err := os.ReadFile(resolved)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "read file: "+err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{"path": path, "writable": true})
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"path":     filename,
+		"content":  string(data),
+		"writable": canWriteToDir(filepath.Dir(resolved)),
+	})
 }
 
-func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPut {
-		w.Header().Set("Allow", http.MethodPut)
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	if !s.authenticateRequest(w, r) {
-		return
-	}
-
+func (s *Server) handleFileReplace(w http.ResponseWriter, r *http.Request, filename, resolved string, info os.FileInfo) {
 	var request struct {
-		CWD     string `json:"cwd"`
-		Path    string `json:"path"`
 		Content string `json:"content"`
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxEditorFileSize+8192)
@@ -261,16 +299,6 @@ func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.IndexByte(request.Content, 0) >= 0 || !utf8.ValidString(request.Content) {
 		writeJSONError(w, http.StatusUnsupportedMediaType, "content is not UTF-8 text")
-		return
-	}
-
-	resolved, info, err := resolveEditorFile(request.CWD, request.Path)
-	if err != nil {
-		status := http.StatusBadRequest
-		if os.IsNotExist(err) {
-			status = http.StatusNotFound
-		}
-		writeJSONError(w, status, err.Error())
 		return
 	}
 
@@ -304,7 +332,7 @@ func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusInternalServerError, "replace file: "+err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"path": request.Path})
+	writeJSON(w, http.StatusOK, map[string]string{"path": filename})
 }
 
 // clientIP extracts the client IP, preferring X-Forwarded-For.
@@ -1162,60 +1190,6 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 					"filename": filepath.Base(resolved),
 				})
 
-			case "preview":
-				var pv struct {
-					Path string `json:"path"`
-				}
-				if json.Unmarshal(msg, &pv) != nil || pv.Path == "" {
-					s.wsSendJSON(conn, map[string]string{"type": "preview-error", "message": "missing path"})
-					continue
-				}
-				cwd, _ := sess.GetCWD()
-				if cwd == "" {
-					cwd = "/tmp"
-				}
-				resolved := filepath.Clean(filepath.Join(cwd, pv.Path))
-				if !strings.HasPrefix(resolved, cwd+string(os.PathSeparator)) && resolved != cwd {
-					s.wsSendJSON(conn, map[string]string{"type": "preview-error", "message": "path escapes working directory"})
-					continue
-				}
-				info, err := os.Stat(resolved)
-				if err != nil || info.IsDir() {
-					s.wsSendJSON(conn, map[string]string{"type": "preview-error", "message": "file not found or is a directory"})
-					continue
-				}
-				// Image files: generate a download token so the client can render via <img>.
-				if isImageExt(filepath.Ext(resolved)) {
-					token := generateID()
-					s.downloadMu.Lock()
-					s.downloadTokens[token] = &downloadEntry{
-						Path:      resolved,
-						Filename:  filepath.Base(resolved),
-						ExpiresAt: time.Now().Add(10 * time.Minute),
-					}
-					s.downloadMu.Unlock()
-					s.wsSendJSON(conn, map[string]interface{}{
-						"type": "preview-image",
-						"path": pv.Path,
-						"url":  "/api/download/" + token,
-					})
-					continue
-				}
-				const maxPreview = 128 << 10 // 128 KiB
-				if info.Size() > maxPreview {
-					s.wsSendJSON(conn, map[string]string{"type": "preview-error", "message": "file too large for preview"})
-					continue
-				}
-				data, err := os.ReadFile(resolved)
-				if err != nil {
-					s.wsSendJSON(conn, map[string]string{"type": "preview-error", "message": "read error: " + err.Error()})
-					continue
-				}
-				s.wsSendJSON(conn, map[string]interface{}{
-					"type":    "preview-content",
-					"path":    pv.Path,
-					"content": string(data),
-				})
 			}
 			continue
 		}
