@@ -213,6 +213,7 @@
             lastListedCWD: '',
             pendingCwdRestore: restoreCwd || '',
             sigOpenFired: false,
+            everConnected: false,
             container: null,
             terminalEl: null
         };
@@ -309,6 +310,7 @@
 
         pane.ws.onopen = function () {
             pane.sigOpenFired = true;
+            pane.everConnected = true;
 
             if (pane.termDataDisposable) pane.termDataDisposable.dispose();
             pane.termDataDisposable = pane.term.onData(function (data) {
@@ -340,7 +342,7 @@
         pane.ws.onmessage = function (ev) { paneWSHandler(pane, ev); };
 
         pane.ws.onclose = function () {
-            if (!pane.sigOpenFired && pane.id === focusedPaneId) {
+            if (!pane.everConnected && !pane.sigOpenFired && pane.id === focusedPaneId) {
                 // Auth failed — show dialog.
                 if (!sig) {
                     showSigDialog();
