@@ -1524,9 +1524,21 @@
     }
 
     // --- preview ---
-    // All regular files are previewable; the server validates (size, UTF-8, etc.)
+    var nonPreviewExts = {
+        'o':   true, 'so':  true, 'a':   true, 'ko': true,
+        'exe': true, 'dll': true, 'bin': true,
+        'zip': true, 'tar': true, 'gz':  true, 'bz2': true, 'xz':  true, '7z': true, 'rar': true,
+        'pdf': true, 'doc': true, 'docx':true, 'xls': true, 'xlsx':true, 'ppt': true, 'pptx':true,
+        'mp3': true, 'mp4': true, 'avi': true, 'mov': true, 'mkv': true, 'wav': true, 'flac':true,
+        'ttf': true, 'otf': true, 'woff':true, 'woff2':true,
+        'pyc': true, 'pyo': true, 'class':true,
+        'iso': true, 'img': true, 'dmg': true,
+        'ps':  true, 'eps': true,
+    };
     function isPreviewable(name) {
-        return true;
+        var dot = name.lastIndexOf('.');
+        if (dot < 0) return true;
+        return !nonPreviewExts[name.slice(dot + 1).toLowerCase()];
     }
 
     var textEditor = new WebtermdTextEditor({
