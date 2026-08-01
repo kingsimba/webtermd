@@ -424,11 +424,11 @@
                         break;
 
                     case 'preview-content':
-                        openPreview(msg.path, { type: 'text', content: msg.content });
+                        textEditor.open(msg.path, { type: 'text', content: msg.content }, pane.lastListedCWD || pane.cwd);
                         break;
 
                     case 'preview-image':
-                        openPreview(msg.path, { type: 'image', url: basePath + msg.url });
+                        textEditor.open(msg.path, { type: 'image', url: basePath + msg.url }, pane.lastListedCWD || pane.cwd);
                         break;
 
                     case 'preview-error':
@@ -1535,51 +1535,20 @@
         return !!previewExts[name.slice(dot + 1).toLowerCase()];
     }
 
-    var highlightExtLangs = {
-        'js': 'javascript', 'jsx': 'javascript', 'ts': 'typescript', 'tsx': 'typescript',
-        'py': 'python', 'rb': 'ruby', 'go': 'go', 'rs': 'rust',
-        'c': 'c', 'h': 'c', 'cpp': 'cpp', 'hpp': 'cpp', 'java': 'java',
-        'php': 'php', 'lua': 'lua', 'sql': 'sql',
-        'sh': 'bash', 'bash': 'bash', 'zsh': 'bash', 'fish': 'bash',
-        'json': 'json', 'yaml': 'yaml', 'yml': 'yaml',
-        'xml': 'xml', 'html': 'xml', 'css': 'css', 'md': 'markdown',
-        'diff': 'diff', 'patch': 'diff',
-        'ini': 'ini', 'cfg': 'ini', 'conf': 'ini', 'toml': 'ini',
-        'env': 'ini', 'properties': 'ini', 'editorconfig': 'ini'
-    };
-
-    var highlightNameLangs = {
-        'Makefile': 'makefile', 'Dockerfile': 'dockerfile',
-        '.bashrc': 'bash', '.bash_profile': 'bash', '.profile': 'bash',
-        '.zshrc': 'bash', '.tmux.conf': 'bash',
-        '.gitconfig': 'ini', '.npmrc': 'ini'
-    };
-
-    function highlightLangFor(name) {
-        if (highlightNameLangs[name]) return highlightNameLangs[name];
-        var dot = name.lastIndexOf('.');
-        if (dot < 0) return null;
-        return highlightExtLangs[name.slice(dot + 1).toLowerCase()] || null;
-    }
-
-    var previewModal = document.getElementById('preview-modal');
-    var previewTitle = document.getElementById('preview-title');
-    var previewBody = document.getElementById('preview-body');
-    var previewTextWrap = document.getElementById('preview-text-wrap');
-    var previewText = document.getElementById('preview-text');
-    var previewImg = document.getElementById('preview-img');
-    var previewDialog = document.getElementById('preview-dialog');
-
-    document.getElementById('preview-close').addEventListener('click', function () {
-        previewModal.classList.remove('open');
-    });
-    previewModal.addEventListener('click', function (e) {
-        if (e.target === previewModal) previewModal.classList.remove('open');
-    });
-    document.addEventListener('keydown', function (e) {
-        if (e.key === 'Escape' && previewModal.classList.contains('open')) {
-            previewModal.classList.remove('open');
+    var textEditor = new WebtermdTextEditor({
+        basePath: basePath,
+        getAuth: getAuth,
+        showError: showError,
+        onSaved: function () {
+            var pane = getFocusedPane();
+            if (pane && pane.ws && pane.ws.readyState === WebSocket.OPEN) {
+                pane.lastListedCWD = '';
+                pane.ws.send(JSON.stringify({ type: 'list-files' }));
+            }
         }
+    });
+
+    document.addEventListener('keydown', function (e) {
         if (e.key === 'Escape' && helpOverlay.classList.contains('open')) {
             helpOverlay.classList.remove('open');
         }
@@ -1589,41 +1558,6 @@
             helpOverlay.classList.remove('open');
         }
     });
-
-    function openPreview(name, data) {
-        previewTitle.textContent = name;
-        previewTextWrap.style.display = 'none';
-        previewImg.style.display = 'none';
-        if (data && data.type === 'image') {
-            previewDialog.className = 'image-preview';
-            previewImg.src = data.url;
-            previewImg.style.display = 'block';
-        } else {
-            previewDialog.className = 'text-preview';
-            var content = data && data.content;
-            previewText.className = '';
-            previewText.replaceChildren();
-            var lines = (content || '(empty)').split('\n');
-            previewText.style.setProperty('--preview-line-number-width', String(lines.length).length + 'ch');
-            var lang = content && window.hljs ? highlightLangFor(name) : null;
-            for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-                var line = document.createElement('span');
-                var code = document.createElement('code');
-                line.className = 'preview-line';
-                if (lang && hljs.getLanguage(lang)) {
-                    // hljs.highlight escapes the input, so innerHTML is safe here.
-                    code.innerHTML = hljs.highlight(lines[lineIndex], { language: lang }).value;
-                    previewText.className = 'hljs';
-                } else {
-                    code.textContent = lines[lineIndex];
-                }
-                line.appendChild(code);
-                previewText.appendChild(line);
-            }
-            previewTextWrap.style.display = 'grid';
-        }
-        previewModal.classList.add('open');
-    }
 
     // --- help popover ---
     var helpOverlay = document.getElementById('help-overlay');

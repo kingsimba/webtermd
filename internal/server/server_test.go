@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
@@ -177,6 +178,179 @@ func TestStaticFileServing(t *testing.T) {
 	// Static dir is empty, should get 404 for root index.html
 	// but the server should handle the request without panic
 	_ = resp.StatusCode
+}
+
+func authenticatedFileRequest(t *testing.T, srv *httptest.Server, priv *rsa.PrivateKey, method, requestURL string, body []byte) *http.Response {
+	t.Helper()
+
+	challenge, err := http.Get(srv.URL + "/api/challenge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer challenge.Body.Close()
+	var challengeBody struct {
+		Nonce string `json:"nonce"`
+	}
+	if err := json.NewDecoder(challenge.Body).Decode(&challengeBody); err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequest(method, requestURL, bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("X-Webtermd-Nonce", challengeBody.Nonce)
+	req.Header.Set("X-Webtermd-Signature", signNonce(priv, challengeBody.Nonce))
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp
+}
+
+func TestFileAPISave(t *testing.T) {
+	srv, priv, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	cwd := t.TempDir()
+	path := filepath.Join(cwd, "config.yaml")
+	if err := os.WriteFile(path, []byte("enabled: true\n"), 0640); err != nil {
+		t.Fatal(err)
+	}
+
+	putBody, err := json.Marshal(map[string]string{
+		"cwd":     cwd,
+		"path":    "config.yaml",
+		"content": "enabled: false\n",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp := authenticatedFileRequest(t, srv, priv, http.MethodPut, srv.URL+"/api/files", putBody)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("PUT: expected 200, got %d", resp.StatusCode)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "enabled: false\n" {
+		t.Fatalf("unexpected saved content: %q", data)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0640 {
+		t.Fatalf("expected preserved mode 0640, got %04o", info.Mode().Perm())
+	}
+}
+
+func TestFileAPIAccess(t *testing.T) {
+	srv, priv, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	cwd := t.TempDir()
+	if err := os.WriteFile(filepath.Join(cwd, "config.py"), []byte("enabled = True\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	requestURL := srv.URL + "/api/files/access?cwd=" + url.QueryEscape(cwd) + "&path=config.py"
+	resp := authenticatedFileRequest(t, srv, priv, http.MethodGet, requestURL, nil)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var body struct {
+		Path     string `json:"path"`
+		Writable bool   `json:"writable"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Path != "config.py" || !body.Writable {
+		t.Fatalf("unexpected access response: %#v", body)
+	}
+}
+
+func TestFileAPIRejectsUnsafeRequests(t *testing.T) {
+	srv, priv, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	cwd := t.TempDir()
+	if err := os.WriteFile(filepath.Join(cwd, "binary"), []byte{'a', 0, 'b'}, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	unauthenticated, err := http.NewRequest(http.MethodPut, srv.URL+"/api/files", bytes.NewBufferString(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	unauthenticatedResponse, err := http.DefaultClient.Do(unauthenticated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unauthenticatedResponse.StatusCode != http.StatusUnauthorized {
+		unauthenticatedResponse.Body.Close()
+		t.Fatalf("missing credentials: expected 401, got %d", unauthenticatedResponse.StatusCode)
+	}
+	unauthenticatedResponse.Body.Close()
+
+	cases := []struct {
+		name string
+		path string
+		want int
+	}{
+		{name: "traversal", path: "../outside", want: http.StatusBadRequest},
+		{name: "directory", path: ".", want: http.StatusBadRequest},
+		{name: "binary", path: "binary", want: http.StatusUnsupportedMediaType},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			body, err := json.Marshal(map[string]string{"cwd": cwd, "path": testCase.path, "content": "updated\n"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp := authenticatedFileRequest(t, srv, priv, http.MethodPut, srv.URL+"/api/files", body)
+			defer resp.Body.Close()
+			if resp.StatusCode != testCase.want {
+				t.Fatalf("expected %d, got %d", testCase.want, resp.StatusCode)
+			}
+		})
+	}
+
+	overLimit, err := json.Marshal(map[string]string{
+		"cwd":     cwd,
+		"path":    "binary",
+		"content": strings.Repeat("x", maxEditorFileSize+1),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp := authenticatedFileRequest(t, srv, priv, http.MethodPut, srv.URL+"/api/files", overLimit)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversized content: expected 413, got %d", resp.StatusCode)
+	}
+}
+
+func TestIsWithinDir(t *testing.T) {
+	cases := []struct {
+		root string
+		path string
+		want bool
+	}{
+		{root: "/", path: "/etc/nginx/nginx.conf", want: true},
+		{root: "/tmp/work", path: "/tmp/work/config.yaml", want: true},
+		{root: "/tmp/work", path: "/tmp/other/config.yaml", want: false},
+	}
+	for _, testCase := range cases {
+		if got := isWithinDir(testCase.root, testCase.path); got != testCase.want {
+			t.Errorf("isWithinDir(%q, %q) = %t, want %t", testCase.root, testCase.path, got, testCase.want)
+		}
+	}
 }
 
 func TestWebSocketResize(t *testing.T) {

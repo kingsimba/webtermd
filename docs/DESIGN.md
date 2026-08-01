@@ -26,6 +26,18 @@ A single WebSocket carries two lanes: raw PTY bytes (bidirectional binary) and J
 
 ---
 
+## REST for Independent Request/Response Operations
+
+Use the WebSocket for long-lived terminal I/O and server-pushed state, but add independent operations as HTTP endpoints when they fit a request/response model. File editing is the first example: text preview arrives over the existing WebSocket because it is initiated from the file-list interaction and is naturally a server-to-client response, while `GET /api/files/access` and `PUT /api/files` are standalone HTTP operations.
+
+**Why REST instead of a new WebSocket command:** Conventional HTTP semantics make contracts clear: retrieval and capability checks use `GET`, idempotent replacement uses `PUT`, and status codes communicate validation or permission failures. This avoids growing the shared PTY/control protocol for operations that do not need a persistent channel, supports independent retries, and makes the API usable by future non-browser clients.
+
+**Authorization:** REST endpoints reuse the signed challenge currently held for the browser's WebSocket session. Each request sends `X-Webtermd-Nonce` and `X-Webtermd-Signature`; the server verifies the signature against `authorized_keys` with the same verifier as the WebSocket upgrade. The nonce remains valid while it is active, so independent API calls do not need a second signing prompt. Requests without valid headers are rejected before performing the operation.
+
+**Operation-specific safety:** Each REST endpoint validates its own inputs and applies its own authorization boundary. For file editing, the client supplies the focused pane's CWD and a relative path. The server resolves that path beneath the CWD and rejects escaping paths, directories, symlinks, binary or invalid UTF-8 content, and files larger than 1 MiB. Saves write and sync a temporary file in the destination directory, retain the original mode bits, then rename it atomically over the target.
+
+---
+
 ## CWD Tracking: /proc Polling, Not Shell Hooks
 
 The server reads `/proc/<pid>/cwd` every 500ms to detect directory changes. There are no shell hooks, no `PROMPT_COMMAND`, no OSC 7 escape sequences.

@@ -567,12 +567,35 @@ body {
 }
 
 #preview-title {
+    margin-right: auto;
     color: #8bc34a;
     font-family: var(--mono-font);
     font-size: 13px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+#preview-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+#preview-save {
+    border: 1px solid #555;
+    border-radius: 3px;
+    padding: 3px 9px;
+    background: #303030;
+    color: #ddd;
+    cursor: pointer;
+    font-family: var(--mono-font);
+    font-size: 12px;
+}
+
+#preview-save:hover {
+    background: #444;
 }
 
 #preview-close {
@@ -585,7 +608,6 @@ body {
     border-radius: 3px;
     line-height: 1;
     flex-shrink: 0;
-    margin-left: 12px;
 }
 
 #preview-close:hover {
@@ -596,6 +618,17 @@ body {
     flex: 1;
     overflow: auto;
     padding: 12px 14px;
+    min-height: 0;
+}
+
+#preview-status {
+    border-top: 1px solid #3c3c3c;
+    color: #888;
+    display: none;
+    flex-shrink: 0;
+    font-family: var(--mono-font);
+    font-size: 11px;
+    padding: 5px 14px;
 }
 
 #preview-text-wrap {
@@ -610,6 +643,7 @@ body {
     line-height: 1.5;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
+    tab-size: 4;
 }
 
 #preview-text {
@@ -644,6 +678,11 @@ body {
     background: transparent;
     padding: 0;
     overflow-x: visible;
+}
+
+#preview-text[contenteditable="true"] {
+    cursor: text;
+    outline: none;
 }
 
 #preview-img {

@@ -26,6 +26,70 @@ Returns a one-time nonce for WebSocket authentication.
 
 The nonce is a base64-encoded random string. It expires after 5 minutes of inactivity — each successful verification extends the expiry, so the same nonce+signature pair can be reused across page refreshes while the session stays active.
 
+### GET /api/files/access
+
+Check whether a text file can be replaced by `PUT /api/files`. The server performs the same authentication and path validation, then verifies it can create and remove a temporary file in the target directory. Clients should call this immediately before entering edit mode.
+
+**Authentication headers**
+
+| Header                 | Description                                     |
+| ---------------------- | ----------------------------------------------- |
+| `X-Webtermd-Nonce`     | Nonce returned by `GET /api/challenge`          |
+| `X-Webtermd-Signature` | Base64 signature of the nonce using the SSH key |
+
+**Query parameters**
+
+| Parameter | Description                                            |
+| --------- | ------------------------------------------------------ |
+| `cwd`     | Absolute current working directory of the focused pane |
+| `path`    | Relative path to the file within `cwd`                 |
+
+**Response** `200 OK`
+
+```json
+{ "path": "nginx.conf", "writable": true }
+```
+
+The endpoint rejects paths that escape `cwd`, directories, binary files, and files larger than 1 MiB. It returns `403 Forbidden` when the target directory cannot create a replacement file.
+
+### PUT /api/files
+
+Atomically replace a text file. The server rejects paths that escape `cwd`, directories, binary files, and files larger than 1 MiB. It writes a temporary file in the target directory, preserves the target's permission bits, syncs it, and renames it over the original file.
+
+**Authentication headers**: `X-Webtermd-Nonce` and `X-Webtermd-Signature`, as described for `GET /api/files/access`.
+
+**Request body**
+
+```json
+{
+  "cwd": "/home/user/projects",
+  "path": "nginx.conf",
+  "content": "events {}\nhttp {}\n"
+}
+```
+
+| Field     | Description                                            |
+| --------- | ------------------------------------------------------ |
+| `cwd`     | Absolute current working directory of the focused pane |
+| `path`    | Relative path to the file within `cwd`                 |
+| `content` | Replacement UTF-8 text, at most 1 MiB                  |
+
+**Response** `200 OK`
+
+```json
+{ "path": "nginx.conf" }
+```
+
+**Errors**
+
+| Status | Description                                           |
+| ------ | ----------------------------------------------------- |
+| 400    | Missing or invalid request fields, path, or text data |
+| 401    | Missing or invalid authentication headers             |
+| 404    | File not found                                        |
+| 413    | File or replacement content exceeds 1 MiB             |
+| 415    | File contains a NUL byte and is treated as binary     |
+
 #### Signing from the command line
 
 The server uses RSA PKCS1v1.5 over SHA-256. The frontend displays a one-liner you can copy and run to sign the nonce:

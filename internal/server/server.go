@@ -18,6 +18,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"webtermd/internal/auth"
 	"webtermd/internal/ptysession"
@@ -104,6 +105,8 @@ func New(a *auth.Authenticator, staticFS fs.FS, noAuth bool, shell string) *Serv
 	s.recoverUploads()
 
 	s.mux.HandleFunc("/api/challenge", s.handleChallenge)
+	s.mux.HandleFunc("/api/files/access", s.handleFileAccess)
+	s.mux.HandleFunc("/api/files", s.handleFiles)
 	s.mux.HandleFunc("/ws", s.handleWS)
 	s.mux.HandleFunc("/ws/cmd", s.handleCmdWS)
 	s.mux.HandleFunc("/api/upload/", s.handleUpload)
@@ -133,6 +136,175 @@ func (s *Server) handleChallenge(w http.ResponseWriter, r *http.Request) {
 	nonce := s.auth.GenerateChallenge()
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"nonce": nonce})
+}
+
+const maxEditorFileSize = 1 << 20
+
+func (s *Server) authenticateRequest(w http.ResponseWriter, r *http.Request) bool {
+	if s.noAuth {
+		return true
+	}
+	if !s.auth.Verify(r.Header.Get("X-Webtermd-Nonce"), r.Header.Get("X-Webtermd-Signature")) {
+		http.Error(w, "authentication failed", http.StatusUnauthorized)
+		return false
+	}
+	return true
+}
+
+func writeJSON(w http.ResponseWriter, status int, value interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(value)
+}
+
+func writeJSONError(w http.ResponseWriter, status int, message string) {
+	writeJSON(w, status, map[string]string{"error": message})
+}
+
+func isWithinDir(root, path string) bool {
+	relative, err := filepath.Rel(root, path)
+	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(os.PathSeparator)) && !filepath.IsAbs(relative)
+}
+
+func resolveEditorFile(cwd, path string) (string, os.FileInfo, error) {
+	if !filepath.IsAbs(cwd) || path == "" || filepath.IsAbs(path) {
+		return "", nil, fmt.Errorf("invalid path")
+	}
+	root, err := filepath.EvalSymlinks(cwd)
+	if err != nil {
+		return "", nil, fmt.Errorf("invalid working directory")
+	}
+	resolved := filepath.Clean(filepath.Join(root, path))
+	if !isWithinDir(root, resolved) {
+		return "", nil, fmt.Errorf("path escapes working directory")
+	}
+	linkInfo, err := os.Lstat(resolved)
+	if err != nil {
+		return "", nil, err
+	}
+	if linkInfo.Mode()&os.ModeSymlink != 0 {
+		return "", nil, fmt.Errorf("symbolic links cannot be edited")
+	}
+	if !linkInfo.Mode().IsRegular() {
+		return "", nil, fmt.Errorf("file is not a regular file")
+	}
+	return resolved, linkInfo, nil
+}
+
+func validateEditorFile(path string, info os.FileInfo) (int, string) {
+	if info.Size() > maxEditorFileSize {
+		return http.StatusRequestEntityTooLarge, "file exceeds 1 MiB editor limit"
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return http.StatusInternalServerError, "read file: " + err.Error()
+	}
+	if strings.IndexByte(string(data), 0) >= 0 || !utf8.Valid(data) {
+		return http.StatusUnsupportedMediaType, "file is not UTF-8 text"
+	}
+	return 0, ""
+}
+
+func (s *Server) handleFileAccess(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodGet)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !s.authenticateRequest(w, r) {
+		return
+	}
+	path := r.URL.Query().Get("path")
+	resolved, info, err := resolveEditorFile(r.URL.Query().Get("cwd"), path)
+	if err != nil {
+		status := http.StatusBadRequest
+		if os.IsNotExist(err) {
+			status = http.StatusNotFound
+		}
+		writeJSONError(w, status, err.Error())
+		return
+	}
+	if status, message := validateEditorFile(resolved, info); status != 0 {
+		writeJSONError(w, status, message)
+		return
+	}
+	if !canWriteToDir(filepath.Dir(resolved)) {
+		writeJSONError(w, http.StatusForbidden, "target directory is not writable")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"path": path, "writable": true})
+}
+
+func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		w.Header().Set("Allow", http.MethodPut)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !s.authenticateRequest(w, r) {
+		return
+	}
+
+	var request struct {
+		CWD     string `json:"cwd"`
+		Path    string `json:"path"`
+		Content string `json:"content"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxEditorFileSize+8192)
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if len(request.Content) > maxEditorFileSize {
+		writeJSONError(w, http.StatusRequestEntityTooLarge, "content exceeds 1 MiB editor limit")
+		return
+	}
+	if strings.IndexByte(request.Content, 0) >= 0 || !utf8.ValidString(request.Content) {
+		writeJSONError(w, http.StatusUnsupportedMediaType, "content is not UTF-8 text")
+		return
+	}
+
+	resolved, info, err := resolveEditorFile(request.CWD, request.Path)
+	if err != nil {
+		status := http.StatusBadRequest
+		if os.IsNotExist(err) {
+			status = http.StatusNotFound
+		}
+		writeJSONError(w, status, err.Error())
+		return
+	}
+
+	if status, message := validateEditorFile(resolved, info); status != 0 {
+		writeJSONError(w, status, message)
+		return
+	}
+
+	temp, err := os.CreateTemp(filepath.Dir(resolved), ".webtermd-edit-*")
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "create temporary file: "+err.Error())
+		return
+	}
+	tempPath := temp.Name()
+	defer os.Remove(tempPath)
+	err = temp.Chmod(info.Mode().Perm())
+	if err == nil {
+		_, err = temp.WriteString(request.Content)
+	}
+	if err == nil {
+		err = temp.Sync()
+	}
+	if closeErr := temp.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "write file: "+err.Error())
+		return
+	}
+	if err := os.Rename(tempPath, resolved); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "replace file: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"path": request.Path})
 }
 
 // clientIP extracts the client IP, preferring X-Forwarded-For.
