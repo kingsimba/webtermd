@@ -1151,7 +1151,7 @@
             name.appendChild(nameText);
             item.appendChild(name);
 
-            if (f.isDir) {
+            if (clickable) {
                 makeDragSafeClick(nameText, function () {
                     var f2 = getFocusedPane();
                     if (f2 && f2.ws && f2.ws.readyState === WebSocket.OPEN) {
