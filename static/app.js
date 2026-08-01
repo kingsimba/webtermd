@@ -1524,28 +1524,9 @@
     }
 
     // --- preview ---
-    var previewExts = {
-        'txt': 1, 'ini': 1, 'cfg': 1, 'conf': 1, 'py': 1, 'js': 1, 'ts': 1, 'jsx': 1, 'tsx': 1,
-        'html': 1, 'css': 1, 'json': 1, 'xml': 1, 'yaml': 1, 'yml': 1, 'toml': 1,
-        'md': 1, 'sh': 1, 'bash': 1, 'zsh': 1, 'fish': 1, 'env': 1, 'log': 1,
-        'go': 1, 'rs': 1, 'c': 1, 'cpp': 1, 'h': 1, 'hpp': 1, 'java': 1, 'rb': 1,
-        'php': 1, 'sql': 1, 'lua': 1, 'vim': 1, 'diff': 1, 'patch': 1,
-        'csv': 1, 'tsv': 1, 'properties': 1, 'cmake': 1, 'gradle': 1,
-        'editorconfig': 1, 'gitignore': 1, 'dockerignore': 1,
-        'png': 1, 'jpg': 1, 'jpeg': 1, 'gif': 1, 'webp': 1, 'svg': 1, 'bmp': 1, 'ico': 1
-    };
-
-    var previewNameSet = {
-        'Makefile': 1, 'Dockerfile': 1, 'LICENSE': 1, 'CHANGELOG': 1,
-        '.bashrc': 1, '.bash_profile': 1, '.profile': 1, '.zshrc': 1,
-        '.gitconfig': 1, '.npmrc': 1, '.tmux.conf': 1
-    };
-
+    // All regular files are previewable; the server validates (size, UTF-8, etc.)
     function isPreviewable(name) {
-        if (previewNameSet[name]) return true;
-        var dot = name.lastIndexOf('.');
-        if (dot < 0) return false;
-        return !!previewExts[name.slice(dot + 1).toLowerCase()];
+        return true;
     }
 
     var textEditor = new WebtermdTextEditor({

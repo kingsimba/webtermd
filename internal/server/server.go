@@ -186,7 +186,15 @@ func resolveFileWithinCWD(cwd, filename string) (string, os.FileInfo, error) {
 		return "", nil, err
 	}
 	if linkInfo.Mode()&os.ModeSymlink != 0 {
-		return "", nil, fmt.Errorf("symbolic links cannot be edited")
+		realPath, err := filepath.EvalSymlinks(resolved)
+		if err != nil {
+			return "", nil, fmt.Errorf("cannot resolve symlink: %w", err)
+		}
+		resolved = realPath
+		linkInfo, err = os.Stat(resolved)
+		if err != nil {
+			return "", nil, err
+		}
 	}
 	if !linkInfo.Mode().IsRegular() {
 		return "", nil, fmt.Errorf("file is not a regular file")
