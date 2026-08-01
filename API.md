@@ -520,18 +520,24 @@ Response to `list-files`. Contains the resolved directory path and a list of ent
   "type": "file-list",
   "dir": "/home/user/projects",
   "files": [
-    { "name": "report.pdf", "size": 4194304, "isDir": false },
-    { "name": "src", "size": 4096, "isDir": true }
+    {
+      "name": "report.pdf",
+      "size": 4194304,
+      "isDir": false,
+      "isSymlink": false
+    },
+    { "name": "src", "size": 4096, "isDir": true, "isSymlink": false }
   ]
 }
 ```
 
-| Field           | Description             |
-| --------------- | ----------------------- |
-| `dir`           | Resolved directory path |
-| `files[].name`  | File or directory name  |
-| `files[].size`  | Size in bytes           |
-| `files[].isDir` | `true` if directory     |
+| Field               | Description             |
+| ------------------- | ----------------------- |
+| `dir`               | Resolved directory path |
+| `files[].name`      | File or directory name  |
+| `files[].size`      | Size in bytes           |
+| `files[].isDir`     | `true` if directory     |
+| `files[].isSymlink` | `true` if symlink       |
 
 ##### file-list-error
 

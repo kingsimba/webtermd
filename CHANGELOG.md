@@ -1,5 +1,6 @@
 # Changelog
 
+- 2026-08-01 webtermd: Show symlinks in light blue and bold sidebar file names
 - 2026-08-01 webtermd: Add authenticated text file editing with indentation support
 - 2026-08-01 webtermd: Move file preview from WebSocket to REST GET with cache control and conditional 304
 - 2026-08-01 webtermd: Fix directory click sending keystrokes when not at shell prompt

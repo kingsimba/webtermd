@@ -1129,7 +1129,7 @@
             }
 
             var name = document.createElement('span');
-            name.className = 'name' + (f.isDir ? ' is-dir' : '');
+            name.className = 'name' + (f.isDir ? ' is-dir' : '') + (f.isSymlink ? ' is-symlink' : '');
             var nameText = document.createElement('span');
             var fp2 = getFocusedPane();
             var clickable = f.isDir && fp2 && fp2.isAtShell;

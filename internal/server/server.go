@@ -697,9 +697,10 @@ func (s *Server) sendFileList(conn *wsConn, cwd string) {
 		return
 	}
 	type fileInfo struct {
-		Name  string `json:"name"`
-		Size  int64  `json:"size"`
-		IsDir bool   `json:"isDir"`
+		Name      string `json:"name"`
+		Size      int64  `json:"size"`
+		IsDir     bool   `json:"isDir"`
+		IsSymlink bool   `json:"isSymlink"`
 	}
 	files := make([]fileInfo, 0, len(entries))
 	for _, e := range entries {
@@ -708,9 +709,10 @@ func (s *Server) sendFileList(conn *wsConn, cwd string) {
 			continue
 		}
 		files = append(files, fileInfo{
-			Name:  e.Name(),
-			Size:  info.Size(),
-			IsDir: e.IsDir(),
+			Name:      e.Name(),
+			Size:      info.Size(),
+			IsDir:     e.IsDir(),
+			IsSymlink: e.Type()&os.ModeSymlink != 0,
 		})
 	}
 	sort.Slice(files, func(i, j int) bool {

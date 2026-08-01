@@ -248,10 +248,15 @@ body {
     text-overflow: ellipsis;
     white-space: nowrap;
     flex: 1;
+    font-weight: bold;
 }
 
 #sidebar-files .file-item .name.is-dir {
     color: #64b5f6;
+}
+
+#sidebar-files .file-item .name.is-symlink {
+    color: #b3e5fc;
 }
 
 #sidebar-files .file-item .name-text {
