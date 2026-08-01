@@ -77,10 +77,10 @@
             }
             if (tabIndentedLines && !smallestSpaceIndent) {
                 indentUnit = '\t';
-                status.textContent = 'Indent: tabs';
+                status.textContent = 'Tabs';
             } else {
                 indentUnit = new Array((smallestSpaceIndent || 4) + 1).join(' ');
-                status.textContent = 'Indent: spaces: ' + indentUnit.length;
+                status.textContent = 'Spaces: ' + indentUnit.length;
             }
         }
 
