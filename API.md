@@ -45,15 +45,15 @@ Retrieve a file preview. `filename` is the single file name relative to the dire
 
 **Text response** `200 OK`
 
-```json
-{
-  "path": "config.ini",
-  "content": "[server]\nhost=localhost\nport=8080\n",
-  "writable": true
-}
+```
+Content-Type: text/plain; charset=utf-8
+
+[server]
+host=localhost
+port=8080
 ```
 
-`writable` is `true` only when the server can create and remove a temporary replacement file in the target directory. A `false` value still returns the readable preview but clients must present it as read-only.
+The response body is the raw file content. `Content-Type` is `text/plain; charset=utf-8`.
 
 **Image response** `200 OK`
 
@@ -72,6 +72,44 @@ Responses include an `ETag` derived from the file modification time and size, pl
 | 404    | File not found                                 |
 | 413    | Text file exceeds the 128 KiB preview limit    |
 | 415    | Text file is binary or is not valid UTF-8      |
+
+### GET /files/:filename/meta
+
+Retrieve metadata for a file. Returns whether the target directory is writable (i.e., the file can be replaced with `PUT /files/:filename`).
+
+**Authentication headers**
+
+| Header                 | Description                                     |
+| ---------------------- | ----------------------------------------------- |
+| `X-Webtermd-Nonce`     | Nonce returned by `GET /api/challenge`          |
+| `X-Webtermd-Signature` | Base64 signature of the nonce using the SSH key |
+
+**Query parameters**
+
+| Parameter | Description                                            |
+| --------- | ------------------------------------------------------ |
+| `path`    | Absolute current working directory of the focused pane |
+
+**Response** `200 OK`
+
+```json
+{
+  "path": "config.ini",
+  "writable": true
+}
+```
+
+`writable` is `true` only when the server can create and remove a temporary replacement file in the target directory. A `false` value means the file is read-only on disk.
+
+This endpoint is not cached — writability can change independently of file content.
+
+**Errors**
+
+| Status | Description                                    |
+| ------ | ---------------------------------------------- |
+| 400    | Missing or invalid path, or path escapes `cwd` |
+| 401    | Missing or invalid authentication headers      |
+| 404    | File not found                                 |
 
 ### PUT /files/:filename
 

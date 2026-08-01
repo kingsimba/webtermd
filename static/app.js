@@ -1195,8 +1195,21 @@
                                     textEditor.open(f.name, { type: 'image', url: URL.createObjectURL(image) }, previewCwd);
                                 });
                             }
-                            return response.json().then(function (result) {
-                                textEditor.open(result.path, { type: 'text', content: result.content, writable: result.writable }, previewCwd);
+                            return response.text().then(function (content) {
+                                var metaURL = basePath + '/files/' + encodeURIComponent(f.name) + '/meta?path=' + encodeURIComponent(previewCwd);
+                                return fetch(metaURL, {
+                                    headers: {
+                                        'X-Webtermd-Nonce': auth.nonce,
+                                        'X-Webtermd-Signature': auth.sig
+                                    }
+                                }).then(function (metaResp) {
+                                    if (!metaResp.ok) return { writable: false };
+                                    return metaResp.json();
+                                }).catch(function () {
+                                    return { writable: false };
+                                }).then(function (meta) {
+                                    textEditor.open(f.name, { type: 'text', content: content, writable: meta.writable }, previewCwd);
+                                });
                             });
                         }).catch(function (exception) {
                             showError('Preview: ' + exception.message);

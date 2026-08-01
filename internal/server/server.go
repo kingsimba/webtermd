@@ -107,6 +107,7 @@ func New(a *auth.Authenticator, staticFS fs.FS, noAuth bool, shell string) *Serv
 
 	s.mux.HandleFunc("/api/challenge", s.handleChallenge)
 	s.mux.HandleFunc("/files/{filename}", s.handleFile)
+	s.mux.HandleFunc("/files/{filename}/meta", s.handleFileMeta)
 	s.mux.HandleFunc("/ws", s.handleWS)
 	s.mux.HandleFunc("/ws/cmd", s.handleCmdWS)
 	s.mux.HandleFunc("/api/upload/", s.handleUpload)
@@ -280,14 +281,32 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, status, message)
 		return
 	}
-	data, err := os.ReadFile(resolved)
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	http.ServeFile(w, r, resolved)
+}
+
+func (s *Server) handleFileMeta(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", "GET")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !s.authenticateRequest(w, r) {
+		return
+	}
+	filename := r.PathValue("filename")
+	path := r.URL.Query().Get("path")
+	resolved, _, err := resolveFileWithinCWD(path, filename)
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "read file: "+err.Error())
+		status := http.StatusBadRequest
+		if os.IsNotExist(err) {
+			status = http.StatusNotFound
+		}
+		writeJSONError(w, status, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"path":     filename,
-		"content":  string(data),
 		"writable": canWriteToDir(filepath.Dir(resolved)),
 	})
 }

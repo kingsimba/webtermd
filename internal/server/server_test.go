@@ -273,16 +273,15 @@ func TestFileAPIPreview(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("text preview: expected 200, got %d", resp.StatusCode)
 	}
-	var textPreview struct {
-		Path     string `json:"path"`
-		Content  string `json:"content"`
-		Writable bool   `json:"writable"`
+	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/plain") {
+		t.Fatalf("expected text/plain content type, got %q", ct)
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&textPreview); err != nil {
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if textPreview.Path != "config.ini" || textPreview.Content != "[server]\nhost=localhost\n" || !textPreview.Writable {
-		t.Fatalf("unexpected text preview: %#v", textPreview)
+	if string(body) != "[server]\nhost=localhost\n" {
+		t.Fatalf("unexpected text content: %q", body)
 	}
 	etag := resp.Header.Get("ETag")
 	if etag == "" {
@@ -316,6 +315,33 @@ func TestFileAPIPreview(t *testing.T) {
 	}
 	if string(image) != "png data" {
 		t.Fatalf("unexpected image preview: %q", image)
+	}
+}
+
+func TestFileAPIMeta(t *testing.T) {
+	srv, priv, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	cwd := t.TempDir()
+	if err := os.WriteFile(filepath.Join(cwd, "config.ini"), []byte("[server]\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	metaURL := srv.URL + "/files/config.ini/meta?path=" + url.QueryEscape(cwd)
+	resp := authenticatedFileRequest(t, srv, priv, http.MethodGet, metaURL, nil)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("meta: expected 200, got %d", resp.StatusCode)
+	}
+	var meta struct {
+		Path     string `json:"path"`
+		Writable bool   `json:"writable"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&meta); err != nil {
+		t.Fatal(err)
+	}
+	if meta.Path != "config.ini" || !meta.Writable {
+		t.Fatalf("unexpected meta: %#v", meta)
 	}
 }
 

@@ -1,5 +1,6 @@
 # Changelog
 
+- 2026-08-02 webtermd: Split file content and metadata into separate REST endpoints
 - 2026-08-01 webtermd: Fix Ctrl+V paste duplicating content in text editor
 - 2026-08-01 webtermd: Show modified state and prevent accidental close in text editor
 - 2026-08-01 webtermd: Improve sidebar typography and increase text editor font size
