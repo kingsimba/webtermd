@@ -15,6 +15,9 @@
         var originalContent = '';
         var dirty = false;
         var normalizing = false;
+        function updateTitle() {
+            title.textContent = dirty ? path + ' (modified)' : path;
+        }
         var indentUnit = '    ';
         var maxUndoLevels = 10;
         var editGroupTimeout = 1000;
@@ -26,6 +29,7 @@
         function closePreview() {
             if (image.src.indexOf('blob:') === 0) URL.revokeObjectURL(image.src);
             image.removeAttribute('src');
+            save.classList.remove('blink');
             modal.classList.remove('open');
         }
 
@@ -264,6 +268,7 @@
             render(state.content, { start: state.start, end: state.end });
             normalizing = false;
             dirty = state.content !== originalContent;
+            updateTitle();
         }
 
         function undo() {
@@ -287,6 +292,7 @@
             var after = historyState(content, { start: start, end: end });
             recordChange(before, after, inputType, false);
             dirty = content !== originalContent;
+            updateTitle();
             normalizing = true;
             render(content, { start: start, end: end });
             normalizing = false;
@@ -419,6 +425,7 @@
             }).then(function () {
                 originalContent = content;
                 dirty = false;
+                updateTitle();
                 save.textContent = 'Saved';
                 options.onSaved();
             }).catch(function (exception) {
@@ -429,8 +436,28 @@
             });
         }
 
+        function blinkSave() {
+            save.classList.remove('blink');
+            void save.offsetWidth;
+            save.classList.add('blink');
+        }
+
         document.addEventListener('keydown', handleEditorKeydown, true);
         text.addEventListener('pointerdown', breakEditGroup);
+        text.addEventListener('paste', function (event) {
+            if (!text.isContentEditable) return;
+            event.preventDefault();
+            pendingInput = null;
+            var pasted = (event.clipboardData || window.clipboardData).getData('text/plain');
+            if (!pasted) return;
+            var content = editorContent();
+            var selection = selectionOffsets(content);
+            var start = Math.min(selection.start, selection.end);
+            var end = Math.max(selection.start, selection.end);
+            var updated = content.slice(0, start) + pasted + content.slice(end);
+            var cursor = start + pasted.length;
+            changeContent(updated, cursor, cursor, 'insertFromPaste');
+        });
         text.addEventListener('beforeinput', function (event) {
             if (normalizing) return;
             pendingInput = {
@@ -447,6 +474,7 @@
             pendingInput = null;
             recordChange(before, historyState(content, selection), inputType, isGroupableInput(inputType));
             dirty = content !== originalContent;
+            updateTitle();
             normalizing = true;
             render(content, selection);
             normalizing = false;
@@ -454,16 +482,23 @@
         document.getElementById('preview-close').addEventListener('click', closePreview);
         save.addEventListener('click', saveContent);
         modal.addEventListener('click', function (event) {
-            if (event.target === modal) closePreview();
+            if (event.target === modal) {
+                if (dirty) blinkSave();
+                else closePreview();
+            }
         });
         document.addEventListener('keydown', function (event) {
-            if (event.key === 'Escape' && modal.classList.contains('open')) closePreview();
+            if (event.key === 'Escape' && modal.classList.contains('open')) {
+                if (dirty) blinkSave();
+                else closePreview();
+            }
         });
 
         this.open = function (name, data, currentCwd) {
             if (image.src.indexOf('blob:') === 0) URL.revokeObjectURL(image.src);
             image.removeAttribute('src');
             title.textContent = name;
+            save.classList.remove('blink');
             textWrap.style.display = 'none';
             image.style.display = 'none';
             text.contentEditable = 'false';
@@ -481,6 +516,7 @@
                 dialog.className = 'text-preview';
                 originalContent = data && data.content || '';
                 dirty = false;
+                updateTitle();
                 resetHistory(originalContent);
                 render(originalContent);
                 textWrap.style.display = 'grid';

@@ -1,5 +1,7 @@
 # Changelog
 
+- 2026-08-01 webtermd: Fix Ctrl+V paste duplicating content in text editor
+- 2026-08-01 webtermd: Show modified state and prevent accidental close in text editor
 - 2026-08-01 webtermd: Improve sidebar typography and increase text editor font size
 - 2026-08-01 webtermd: Show symlinks in light blue and bold sidebar file names
 - 2026-08-01 webtermd: Add authenticated text file editing with indentation support

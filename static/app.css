@@ -585,6 +585,15 @@ body {
     white-space: nowrap;
 }
 
+@keyframes blink-save {
+    0%, 100% { background-color: transparent; }
+    50% { background-color: rgba(255, 82, 82, 1.0); }
+}
+
+#preview-save.blink {
+    animation: blink-save 0.5s ease-in-out 3;
+}
+
 #preview-actions {
     display: flex;
     align-items: center;
