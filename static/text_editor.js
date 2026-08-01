@@ -16,6 +16,12 @@
         var dirty = false;
         var normalizing = false;
         var indentUnit = '    ';
+        var maxUndoLevels = 10;
+        var editGroupTimeout = 1000;
+        var history = [];
+        var historyIndex = 0;
+        var pendingInput = null;
+        var lastEdit = null;
 
         function closePreview() {
             if (image.src.indexOf('blob:') === 0) URL.revokeObjectURL(image.src);
@@ -197,8 +203,90 @@
             return content.lastIndexOf('\n', Math.max(0, offset - 1)) + 1;
         }
 
-        function changeContent(content, start, end) {
-            dirty = true;
+        function historyState(content, selection) {
+            return { content: content, start: selection.start, end: selection.end };
+        }
+
+        function currentState() {
+            var content = editorContent();
+            return historyState(content, selectionOffsets(content));
+        }
+
+        function resetHistory(content) {
+            history = [historyState(content, { start: content.length, end: content.length })];
+            historyIndex = 0;
+            pendingInput = null;
+            lastEdit = null;
+        }
+
+        function breakEditGroup() {
+            lastEdit = null;
+        }
+
+        function isGroupableInput(inputType) {
+            return inputType === 'insertText' || inputType === 'deleteContentBackward' ||
+                inputType === 'deleteContentForward';
+        }
+
+        function recordChange(before, after, inputType, groupable) {
+            if (before.content === after.content) return;
+
+            var now = Date.now();
+            var collapsed = before.start === before.end && after.start === after.end;
+            var adjacent = lastEdit && lastEdit.end === before.start;
+            var canGroup = groupable && collapsed && adjacent && lastEdit.inputType === inputType &&
+                lastEdit.historyIndex === historyIndex && now - lastEdit.time <= editGroupTimeout &&
+                history[historyIndex].content === before.content;
+
+            history[historyIndex] = before;
+            if (canGroup) {
+                history[historyIndex] = after;
+            } else {
+                history = history.slice(0, historyIndex + 1);
+                history.push(after);
+                historyIndex++;
+                if (history.length > maxUndoLevels + 1) {
+                    history.shift();
+                    historyIndex--;
+                }
+            }
+
+            lastEdit = groupable && collapsed ? {
+                inputType: inputType,
+                end: after.end,
+                historyIndex: historyIndex,
+                time: now
+            } : null;
+        }
+
+        function applyHistory(state) {
+            normalizing = true;
+            render(state.content, { start: state.start, end: state.end });
+            normalizing = false;
+            dirty = state.content !== originalContent;
+        }
+
+        function undo() {
+            pendingInput = null;
+            breakEditGroup();
+            if (historyIndex === 0) return;
+            historyIndex--;
+            applyHistory(history[historyIndex]);
+        }
+
+        function redo() {
+            pendingInput = null;
+            breakEditGroup();
+            if (historyIndex >= history.length - 1) return;
+            historyIndex++;
+            applyHistory(history[historyIndex]);
+        }
+
+        function changeContent(content, start, end, inputType) {
+            var before = currentState();
+            var after = historyState(content, { start: start, end: end });
+            recordChange(before, after, inputType, false);
+            dirty = content !== originalContent;
             normalizing = true;
             render(content, { start: start, end: end });
             normalizing = false;
@@ -244,7 +332,7 @@
             var updatedStart = updatedOffset(start);
             var updatedEnd = updatedOffset(end);
             if (start === end) updatedEnd = updatedStart;
-            changeContent(lines.join('\n'), updatedStart, updatedEnd);
+            changeContent(lines.join('\n'), updatedStart, updatedEnd, outdent ? 'outdent' : 'indent');
         }
 
         function insertNewline() {
@@ -263,7 +351,7 @@
             if (/^\s*[})\]]/.test(after)) insertion += '\n' + baseIndent;
             var updated = content.slice(0, start) + insertion + content.slice(end);
             var cursor = start + 1 + indent.length;
-            changeContent(updated, cursor, cursor);
+            changeContent(updated, cursor, cursor, 'newline');
         }
 
         function outdentBeforeCursor() {
@@ -275,13 +363,21 @@
             if (!/^\s+$/.test(prefix)) return false;
             var remove = Math.min(indentUnit.length, prefix.length);
             var updated = content.slice(0, start - remove) + content.slice(start);
-            changeContent(updated, start - remove, start - remove);
+            changeContent(updated, start - remove, start - remove, 'outdent');
             return true;
         }
 
         function handleEditorKeydown(event) {
             if (!text.isContentEditable || (!text.contains(event.target) && document.activeElement !== text)) return;
-            if (event.key === 'Tab') {
+            var key = event.key.toLowerCase();
+            if ((event.ctrlKey || event.metaKey) && key === 'z') {
+                event.preventDefault();
+                if (event.shiftKey) redo();
+                else undo();
+            } else if (event.ctrlKey && key === 'r') {
+                event.preventDefault();
+                redo();
+            } else if (event.key === 'Tab') {
                 event.preventDefault();
                 indentSelection(event.shiftKey);
             } else if (event.key === 'Enter') {
@@ -289,6 +385,8 @@
                 insertNewline();
             } else if (event.key === 'Backspace' && outdentBeforeCursor()) {
                 event.preventDefault();
+            } else if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].indexOf(event.key) !== -1) {
+                breakEditGroup();
             }
         }
 
@@ -332,11 +430,23 @@
         }
 
         document.addEventListener('keydown', handleEditorKeydown, true);
-        text.addEventListener('input', function () {
+        text.addEventListener('pointerdown', breakEditGroup);
+        text.addEventListener('beforeinput', function (event) {
             if (normalizing) return;
-            dirty = true;
+            pendingInput = {
+                state: currentState(),
+                inputType: event.inputType || 'input'
+            };
+        });
+        text.addEventListener('input', function (event) {
+            if (normalizing) return;
             var content = renderedContent();
             var selection = selectionOffsets(content);
+            var before = pendingInput ? pendingInput.state : history[historyIndex];
+            var inputType = pendingInput ? pendingInput.inputType : event.inputType || 'input';
+            pendingInput = null;
+            recordChange(before, historyState(content, selection), inputType, isGroupableInput(inputType));
+            dirty = content !== originalContent;
             normalizing = true;
             render(content, selection);
             normalizing = false;
@@ -371,6 +481,7 @@
                 dialog.className = 'text-preview';
                 originalContent = data && data.content || '';
                 dirty = false;
+                resetHistory(originalContent);
                 render(originalContent);
                 textWrap.style.display = 'grid';
                 status.style.display = 'block';
