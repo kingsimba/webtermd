@@ -695,7 +695,7 @@
                 '<rect x="1.5" y="8.3" width="13" height="6.2" rx="0.5" fill="currentColor" opacity="0.45"/>' +
                 '<line x1="1.5" y1="8.3" x2="14.5" y2="8.3" stroke="currentColor" stroke-width="1.3"/>' +
                 '</svg>';
-            splitDownBtn.title = 'Split down (Alt+Shift+-)';
+            splitDownBtn.title = 'Split down (Alt+Shift+D)';
             splitDownBtn.addEventListener('click', function (e) {
                 e.stopPropagation();
                 focusPane(pane.id);
@@ -710,7 +710,7 @@
                 '<rect x="8.3" y="1.5" width="6.2" height="13" rx="0.5" fill="currentColor" opacity="0.45"/>' +
                 '<line x1="8.3" y1="1.5" x2="8.3" y2="14.5" stroke="currentColor" stroke-width="1.3"/>' +
                 '</svg>';
-            splitRightBtn.title = 'Split right (Alt+Shift+D)';
+            splitRightBtn.title = 'Split right (Alt+Shift+=)';
             splitRightBtn.addEventListener('click', function (e) {
                 e.stopPropagation();
                 focusPane(pane.id);
@@ -830,18 +830,18 @@
 
     // --- global hotkey handler (capture phase) ---
     terminalContainer.addEventListener('keydown', function (e) {
-        // Alt+Shift+D → split horizontal (side by side)
+        // Alt+Shift+D → split vertical (top/bottom)
         if (e.altKey && e.shiftKey && !e.ctrlKey && !e.metaKey && (e.key === 'd' || e.key === 'D')) {
             e.preventDefault();
             e.stopImmediatePropagation();
-            splitPane('horizontal');
+            splitPane('vertical');
             return;
         }
-        // Alt+Shift+- → split vertical (stacked)
-        if (e.altKey && e.shiftKey && !e.ctrlKey && !e.metaKey && (e.key === '-' || e.key === '_')) {
+        // Alt+Shift+= → split horizontal (left/right)
+        if (e.altKey && e.shiftKey && !e.ctrlKey && !e.metaKey && (e.key === '=' || e.key === '+')) {
             e.preventDefault();
             e.stopImmediatePropagation();
-            splitPane('vertical');
+            splitPane('horizontal');
             return;
         }
         // Alt+Shift+Arrow → resize
