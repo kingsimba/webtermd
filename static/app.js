@@ -1,15 +1,10 @@
 (function () {
-    var CHUNK_SIZE = 1 << 20; // 1 MiB
-
     // --- DOM refs ---
     var status = document.getElementById('status');
     var sidebar = document.getElementById('sidebar');
     var toggleBtn = document.getElementById('toggle-sidebar');
     var cwdPath = document.getElementById('cwd-path');
     var cwdInline = document.getElementById('cwd-inline');
-    var uploadsList = document.getElementById('sidebar-uploads');
-    var dropZone = document.getElementById('drop-zone');
-    var emptyHint = uploadsList.querySelector('.empty-hint');
     var terminalContainer = document.getElementById('terminal-container');
 
     function showError(msg) {
@@ -34,16 +29,13 @@
     var clearUploadsBtn = document.getElementById('clear-uploads');
     if (clearUploadsBtn) {
         clearUploadsBtn.addEventListener('click', function () {
-            clearHistory();
+            if (uploadManager) uploadManager.clearHistory();
         });
     }
 
     // --- global state ---
     var wsCmd = null;
-    var uploadToken = '';
-    var uploadPrefix = '';
-    var uploads = {};        // id -> { el, filename, received, total, file, xhr, offset, paused }
-    var pendingUploads = {};  // filename -> File object (waiting for upload-init ack)
+    var uploadManager = null;
     var basePath = location.pathname.replace(/\/[^/]*$/, '');
     var sigNonce = '';
 
@@ -100,29 +92,6 @@
         if (entry) {
             delete entry.nonce;
             delete entry.sig;
-            if (Object.keys(entry).length === 0) {
-                clearPathEntry();
-            } else {
-                savePathEntry(entry);
-            }
-        }
-    }
-
-    function getHistory() {
-        var entry = getPathEntry();
-        return (entry && entry.uploads) ? entry.uploads : [];
-    }
-
-    function setHistory(history) {
-        var entry = getPathEntry() || {};
-        entry.uploads = history;
-        savePathEntry(entry);
-    }
-
-    function clearHistoryStore() {
-        var entry = getPathEntry();
-        if (entry) {
-            delete entry.uploads;
             if (Object.keys(entry).length === 0) {
                 clearPathEntry();
             } else {
@@ -1038,7 +1007,7 @@
             }
             return;
         }
-        var uploadPaths = getUploadListPaths();
+        var uploadPaths = uploadManager.getUploadListPaths();
         var fcwd = cwd.replace(/\/$/, '');
         filtered.forEach(function (f) {
             var item = document.createElement('div');
@@ -1159,257 +1128,12 @@
         setTimeout(function () { document.body.removeChild(iframe); }, 5000);
     }
 
-    // --- upload progress UI ---
-    function hideEmptyHint() {
-        if (emptyHint) { emptyHint.style.display = 'none'; }
-    }
-
-    function showEmptyHint() {
-        var hasItems = uploadsList.querySelector('.item');
-        if (emptyHint) { emptyHint.style.display = hasItems ? 'none' : ''; }
-    }
-
-    function getUploadEl(id) {
-        if (!uploads[id]) {
-            var el = document.createElement('div');
-            el.className = 'item';
-            el.innerHTML = '<span class="name"></span>' +
-                '<div class="bar"><div class="bar-fill"></div></div>' +
-                '<span class="status-text"></span>' +
-                '<div class="actions">' +
-                '<button class="btn-pause">⏸ Pause</button>' +
-                '<button class="btn-cancel">✕ Cancel</button>' +
-                '</div>';
-            uploadsList.appendChild(el);
-
-            uploads[id] = { el: el, offset: 0, paused: false };
-
-            el.querySelector('.btn-pause').addEventListener('click', function () {
-                togglePause(id);
-            });
-            el.querySelector('.btn-cancel').addEventListener('click', function () {
-                cancelUpload(id);
-            });
-
-            hideEmptyHint();
-        }
-        return uploads[id];
-    }
-
-    function updateUpload(id, filename, received, total, done, error) {
-        var u = getUploadEl(id);
-        u.filename = filename;
-        u.received = received;
-        u.total = total;
-        var pct = total > 0 ? Math.round(received / total * 100) : 0;
-        u.el.querySelector('.name').textContent = filename;
-        u.el.querySelector('.bar-fill').style.width = pct + '%';
-
-        var statusEl = u.el.querySelector('.status-text');
-        var pauseBtn = u.el.querySelector('.btn-pause');
-
-        if (done) {
-            u.el.classList.add('done');
-            u.el.classList.remove('error', 'paused');
-            statusEl.textContent = 'Done — ' + WebtermdUtils.formatSize(received);
-            u.el.querySelector('.actions').innerHTML = '';
-            // Context menu on done items
-            u.el.addEventListener('contextmenu', function (e) {
-                e.preventDefault();
-                showUploadContextMenu(e.clientX, e.clientY, id, u.filename, u.path);
-            });
-            // Save to localStorage history
-            saveHistory({
-                id: id,
-                filename: u.filename,
-                size: u.total,
-                time: new Date().toLocaleString(),
-                path: u.path
-            });
-        } else if (error) {
-            u.el.classList.add('error');
-            u.el.classList.remove('done', 'paused');
-            statusEl.textContent = 'Failed — will retry';
-            if (pauseBtn) pauseBtn.textContent = '▶ Resume';
-        } else if (u.paused) {
-            u.el.classList.add('paused');
-            u.el.classList.remove('done', 'error');
-            statusEl.textContent = 'Paused — ' + WebtermdUtils.formatSize(received) + ' / ' + WebtermdUtils.formatSize(total);
-            if (pauseBtn) pauseBtn.textContent = '▶ Resume';
-        } else {
-            u.el.classList.remove('done', 'error', 'paused');
-            statusEl.textContent = WebtermdUtils.formatSize(received) + ' / ' + WebtermdUtils.formatSize(total);
-            if (pauseBtn) pauseBtn.textContent = '⏸ Pause';
-        }
-    }
-
-    function togglePause(id) {
-        var u = uploads[id];
-        if (!u || !u.file) return;
-        u.paused = !u.paused;
-        if (u.paused) {
-            if (u.xhr) { u.xhr.abort(); u.xhr = null; }
-            updateUpload(id, u.filename, u.received, u.total);
-        } else {
-            updateUpload(id, u.filename, u.received, u.total);
-            sendChunk(id);
-        }
-    }
-
-    function cancelUpload(id) {
-        var u = uploads[id];
-        if (!u) return;
-        if (u.xhr) { u.xhr.abort(); u.xhr = null; }
-        if (wsCmd && wsCmd.readyState === WebSocket.OPEN) {
-            wsCmd.send(JSON.stringify({ type: 'upload-cancel', id: id }));
-        }
-        try { localStorage.removeItem('ax-upload-' + id); } catch (e) { }
-        if (u.el && u.el.parentNode) u.el.parentNode.removeChild(u.el);
-        delete uploads[id];
-        showEmptyHint();
-    }
-
-    function getUploadListPaths() {
-        var paths = {};
-        // Check active uploads only (skip done/history entries)
-        for (var id in uploads) {
-            var u = uploads[id];
-            if (u.el && (u.el.classList.contains('done') || u.el.classList.contains('history'))) continue;
-            if (u.filename && u.dir) {
-                paths[u.dir.replace(/\/$/, '') + '/' + u.filename] = true;
-            }
-        }
-        // Check localStorage history
-        try {
-            var history = getHistory();
-            for (var i = 0; i < history.length; i++) {
-                if (history[i].path) paths[history[i].path] = true;
-            }
-        } catch (e) { }
-        return paths;
-    }
-
-    // --- upload history (localStorage) ---
-    var MAX_HISTORY = 99;
-
-    function loadHistory() {
-        var history = getHistory();
-        for (var i = 0; i < history.length; i++) {
-            renderHistoryItem(history[i]);
-        }
-    }
-
-    function saveHistory(entry) {
-        var history = getHistory();
-        history.unshift(entry);
-        if (history.length > MAX_HISTORY) {
-            history = history.slice(0, MAX_HISTORY);
-        }
-        setHistory(history);
-    }
-
-    function deleteHistory(id) {
-        var history = getHistory();
-        history = history.filter(function (h) { return h.id !== id; });
-        setHistory(history);
-    }
-
-    function clearHistory() {
-        clearHistoryStore();
-        var items = uploadsList.querySelectorAll('.history');
-        for (var i = 0; i < items.length; i++) {
-            items[i].parentNode.removeChild(items[i]);
-        }
-        // Also clean done entries from uploads map
-        for (var id in uploads) {
-            var u = uploads[id];
-            if (u.el && u.el.classList.contains('done')) {
-                if (u.el.parentNode) u.el.parentNode.removeChild(u.el);
-                delete uploads[id];
-            }
-        }
-        showEmptyHint();
-        refreshFileList();
-    }
-
-    function renderHistoryItem(entry) {
-        // skip if already rendered
-        if (uploads[entry.id]) return;
-        hideEmptyHint();
-        var el = document.createElement('div');
-        el.className = 'item history';
-        el.innerHTML =
-            '<span class="name">' + WebtermdUtils.escapeHtml(entry.filename) + '</span>' +
-            '<div class="bar"><div class="bar-fill"></div></div>' +
-            '<span class="status-text">' + WebtermdUtils.formatSize(entry.size) + ' — ' + entry.time + '</span>' +
-            '<div class="actions"></div>';
-        uploadsList.appendChild(el);
-
-        var u = { el: el, filename: entry.filename, received: entry.size, total: entry.size, path: entry.path };
-        uploads[entry.id] = u;
-
-        el.addEventListener('contextmenu', function (e) {
-            e.preventDefault();
-            showUploadContextMenu(e.clientX, e.clientY, entry.id, entry.filename, entry.path);
-        });
-    }
-
-    // --- upload context menu ---
-    var ctxMenu = null;
-
-    function ensureCtxMenu() {
-        if (ctxMenu) return;
-        ctxMenu = document.createElement('div');
-        ctxMenu.id = 'upload-ctx-menu';
-        ctxMenu.style.display = 'none';
-        document.body.appendChild(ctxMenu);
-        document.addEventListener('click', function () {
-            if (ctxMenu) ctxMenu.style.display = 'none';
-            var hl = document.querySelector('.ctx-highlight');
-            if (hl) hl.classList.remove('ctx-highlight');
-        });
-    }
-
-    function showUploadContextMenu(x, y, id, filename, path) {
-        ensureCtxMenu();
-        ctxMenu.style.display = 'block';
-        ctxMenu.style.left = x + 'px';
-        ctxMenu.style.top = y + 'px';
-        ctxMenu.innerHTML =
-            '<div class="ctx-item" data-action="remove">Remove from history</div>' +
-            (path ? '<div class="ctx-item ctx-danger" data-action="delete">Delete file</div>' : '');
-
-        var items = ctxMenu.querySelectorAll('.ctx-item');
-        for (var i = 0; i < items.length; i++) {
-            items[i].onclick = function () {
-                var action = this.getAttribute('data-action');
-                ctxMenu.style.display = 'none';
-                if (action === 'remove') {
-                    removeUploadFromUI(id);
-                } else if (action === 'delete' && wsCmd && wsCmd.readyState === WebSocket.OPEN) {
-                    wsCmd.send(JSON.stringify({ type: 'delete-file', path: path }));
-                    removeUploadFromUI(id);
-                }
-            };
-        }
-    }
-
-    function removeUploadFromUI(id) {
-        deleteHistory(id);
-        var u = uploads[id];
-        if (u && u.el && u.el.parentNode) {
-            u.el.parentNode.removeChild(u.el);
-        }
-        delete uploads[id];
-        showEmptyHint();
-    }
-
     function showFileContextMenu(x, y, name, path, itemEl) {
-        ensureCtxMenu();
-        ctxMenu.style.display = 'block';
-        ctxMenu.style.left = x + 'px';
-        ctxMenu.style.top = y + 'px';
-        ctxMenu.innerHTML = '<div class="ctx-item" data-action="download-file">Download</div>' +
+        var cm = uploadManager.getCtxMenu();
+        cm.style.display = 'block';
+        cm.style.left = x + 'px';
+        cm.style.top = y + 'px';
+        cm.innerHTML = '<div class="ctx-item" data-action="download-file">Download</div>' +
             '<div class="ctx-item ctx-danger" data-action="delete-file">Delete</div>';
 
         if (itemEl) {
@@ -1418,11 +1142,11 @@
             itemEl.classList.add('ctx-highlight');
         }
 
-        var items = ctxMenu.querySelectorAll('.ctx-item');
+        var items = cm.querySelectorAll('.ctx-item');
         for (var i = 0; i < items.length; i++) {
             items[i].onclick = function () {
                 var action = this.getAttribute('data-action');
-                ctxMenu.style.display = 'none';
+                cm.style.display = 'none';
                 if (itemEl) itemEl.classList.remove('ctx-highlight');
                 if (action === 'download-file') {
                     var fp = getFocusedPane();
@@ -1642,116 +1366,6 @@
         if (e.target === helpOverlay) helpOverlay.classList.remove('open');
     });
 
-    // --- chunk upload engine ---
-    function sendChunk(id) {
-        var u = uploads[id];
-        if (!u || u.paused) return;
-        if (u.offset >= u.total) {
-            if (wsCmd && wsCmd.readyState === WebSocket.OPEN) {
-                wsCmd.send(JSON.stringify({ type: 'upload-commit', id: id }));
-            }
-            return;
-        }
-
-        var end = Math.min(u.offset + CHUNK_SIZE, u.total);
-        var blob = u.file.slice(u.offset, end);
-
-        var xhr = new XMLHttpRequest();
-        u.xhr = xhr;
-        var url = uploadPrefix + id + '?utoken=' + encodeURIComponent(uploadToken) + '&offset=' + u.offset;
-        xhr.open('POST', url);
-        xhr.onload = function () {
-            if (!uploads[id]) return;
-            if (xhr.status >= 200 && xhr.status < 300) {
-                var resp = JSON.parse(xhr.responseText);
-                u.offset += resp.bytes_written;
-                u.xhr = null;
-                updateUpload(id, u.filename, resp.received, resp.total);
-                sendChunk(id);
-            } else {
-                u.paused = true;
-                u.xhr = null;
-                updateUpload(id, u.filename, u.offset, u.total, false, true);
-                showError('Upload chunk failed: ' + xhr.status);
-            }
-        };
-        xhr.onerror = function () {
-            if (!uploads[id]) return;
-            u.paused = true;
-            u.xhr = null;
-            updateUpload(id, u.filename, u.offset, u.total, false, true);
-            showError('Upload interrupted — will resume on reconnect');
-            try {
-                localStorage.setItem('ax-upload-' + id, JSON.stringify({
-                    filename: u.filename, size: u.total, offset: u.offset
-                }));
-            } catch (e) { }
-        };
-        xhr.ontimeout = function () {
-            if (!uploads[id]) return;
-            u.paused = true;
-            u.xhr = null;
-        };
-        xhr.timeout = 30000;
-        xhr.send(blob);
-    }
-
-    function startChunkedUpload(id, file) {
-        var u = uploads[id];
-        u.file = file;
-        u.total = file.size;
-        u.offset = 0;
-        u.paused = false;
-        sendChunk(id);
-    }
-
-    function uploadFile(file) {
-        if (!wsCmd || wsCmd.readyState !== WebSocket.OPEN) {
-            showError('Command channel not connected');
-            return;
-        }
-        pendingUploads[file.name] = file;
-        var fp = getFocusedPane();
-        var dir = fp && fp.cwd ? fp.cwd : (cwdPath.textContent !== '-' ? cwdPath.textContent : '/tmp');
-        wsCmd.send(JSON.stringify({
-            type: 'upload-init',
-            filename: file.name,
-            size: file.size,
-            dir: dir
-        }));
-    }
-
-    // --- drag and drop ---
-    dropZone.addEventListener('dragover', function (e) {
-        e.preventDefault();
-        e.stopPropagation();
-        dropZone.classList.add('drag-over');
-    });
-    dropZone.addEventListener('dragleave', function (e) {
-        e.preventDefault();
-        e.stopPropagation();
-        dropZone.classList.remove('drag-over');
-    });
-    dropZone.addEventListener('drop', function (e) {
-        e.preventDefault();
-        e.stopPropagation();
-        dropZone.classList.remove('drag-over');
-        var files = e.dataTransfer.files;
-        for (var i = 0; i < files.length; i++) {
-            uploadFile(files[i]);
-        }
-    });
-    dropZone.addEventListener('click', function () {
-        var input = document.createElement('input');
-        input.type = 'file';
-        input.onchange = function () {
-            for (var i = 0; i < input.files.length; i++) {
-                uploadFile(input.files[i]);
-            }
-        };
-        input.click();
-    });
-
     // --- command channel WebSocket ---
     function connectCmd(nonce, sig) {
         var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -1764,48 +1378,16 @@
             var msg = JSON.parse(ev.data);
             switch (msg.type) {
                 case 'session':
-                    uploadToken = msg.upload_token;
-                    uploadPrefix = basePath + msg.upload_prefix;
-                    loadHistory();
-                    for (var i = 0; i < localStorage.length; i++) {
-                        var key = localStorage.key(i);
-                        if (key.indexOf('ax-upload-') === 0) {
-                            var info = JSON.parse(localStorage[key]);
-                            wsCmd.send(JSON.stringify({ type: 'upload-status', id: info.id }));
-                        }
-                    }
+                    uploadManager.setWsCmd(wsCmd);
+                    uploadManager.setSession(msg.upload_token, msg.upload_prefix);
+                    uploadManager.initFromCmd();
                     break;
 
                 case 'upload-init':
-                    var f = pendingUploads[msg.filename];
-                    var total = f ? f.size : 0;
-                    updateUpload(msg.id, msg.filename || '', 0, total);
-                    var u = uploads[msg.id];
-                    if (u) u.dir = msg.dir;
-                    if (f) {
-                        delete pendingUploads[msg.filename];
-                        startChunkedUpload(msg.id, f);
-                    }
-                    break;
-
                 case 'upload-error':
-                    showError('Upload: ' + msg.message);
-                    break;
-
                 case 'upload-done':
-                    var du = uploads[msg.id];
-                    var dtotal = du ? du.total : 0;
-                    if (du) du.path = msg.path;
-                    updateUpload(msg.id, msg.filename, dtotal, dtotal, true);
-                    try { localStorage.removeItem('ax-upload-' + msg.id); } catch (e) { }
-                    break;
-
                 case 'upload-status':
-                    if (msg.exists) {
-                        updateUpload(msg.id, msg.filename, msg.received, msg.total);
-                    } else {
-                        try { localStorage.removeItem('ax-upload-' + msg.id); } catch (e) { }
-                    }
+                    uploadManager.handleCmdMessage(msg);
                     break;
             }
         };
@@ -1913,6 +1495,24 @@
 
         // Focus first pane.
         focusPane(ids[0]);
+
+        // Create upload manager (once).
+        if (!uploadManager) {
+            uploadManager = WebtermdUpload.create({
+                uploadsList: document.getElementById('sidebar-uploads'),
+                emptyHint: (document.getElementById('sidebar-uploads') || {}).querySelector ? document.getElementById('sidebar-uploads').querySelector('.empty-hint') : null,
+                dropZone: document.getElementById('drop-zone'),
+                chunkSize: 1 << 20,
+                basePath: basePath,
+                getPathEntry: getPathEntry,
+                savePathEntry: savePathEntry,
+                getAuth: getAuth,
+                getFocusedPane: getFocusedPane,
+                cwdPath: cwdPath,
+                showError: showError,
+                onHistoryChanged: refreshFileList
+            });
+        }
 
         // Connect command channel.
         var stored = getAuth();
