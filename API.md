@@ -28,7 +28,7 @@ The nonce is a base64-encoded random string. It expires after 5 minutes of inact
 
 ### GET /files/:filename
 
-Retrieve a file preview. `filename` is the single file name relative to the directory given by `path`. Text files return JSON content and whether they can be replaced with `PUT /files/:filename`; image files return their original bytes with an image `Content-Type`. The server resolves `filename` beneath `path` and rejects invalid filenames, directories, symlinks, text files larger than 128 KiB, binary text, and invalid UTF-8 text. Image files may use the `png`, `jpg`, `jpeg`, `gif`, `webp`, `svg`, `bmp`, or `ico` extensions.
+Retrieve a file preview. `filename` is the single file name relative to the directory given by `path`. Text files return JSON content and whether they can be replaced with `PUT /files/:filename`; image files return their original bytes with an image `Content-Type`. The server resolves `filename` beneath `path` and rejects invalid filenames, directories, symlinks, text files larger than the preview limit (configurable via `-preview-limit`), binary text, and invalid UTF-8 text. Image files may use the `png`, `jpg`, `jpeg`, `gif`, `webp`, `svg`, `bmp`, or `ico` extensions.
 
 **Authentication headers**
 
@@ -65,13 +65,13 @@ Responses include an `ETag` derived from the file modification time and size, pl
 
 **Errors**
 
-| Status | Description                                    |
-| ------ | ---------------------------------------------- |
-| 400    | Missing or invalid path, or path escapes `cwd` |
-| 401    | Missing or invalid authentication headers      |
-| 404    | File not found                                 |
-| 413    | Text file exceeds the 128 KiB preview limit    |
-| 415    | Text file is binary or is not valid UTF-8      |
+| Status | Description                                                              |
+| ------ | ------------------------------------------------------------------------ |
+| 400    | Missing or invalid path, or path escapes `cwd`                           |
+| 401    | Missing or invalid authentication headers                                |
+| 404    | File not found                                                           |
+| 413    | Text file exceeds the preview limit (configurable with `-preview-limit`) |
+| 415    | Text file is binary or is not valid UTF-8                                |
 
 ### GET /files/:filename/meta
 

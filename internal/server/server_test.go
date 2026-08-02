@@ -353,7 +353,7 @@ func TestFileAPIPreviewRejectsUnsafeRequests(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(cwd, "binary.txt"), []byte{'a', 0, 'b'}, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(cwd, "large.txt"), []byte(strings.Repeat("x", maxPreviewFileSize+1)), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(cwd, "large.txt"), []byte(strings.Repeat("x", DefaultMaxPreviewFileSize+1)), 0600); err != nil {
 		t.Fatal(err)
 	}
 

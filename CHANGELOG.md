@@ -1,5 +1,6 @@
 # Changelog
 
+- 2026-08-02 webtermd: Raise default file preview limit to 256 KiB and make it configurable with `-preview-limit`
 - 2026-08-02 webtermd: Add in-memory sudo password reuse
 - 2026-08-02 webtermd: Fix sudo file saves
 - 2026-08-02 webtermd: Split file content and metadata into separate REST endpoints

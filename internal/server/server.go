@@ -81,6 +81,8 @@ type Server struct {
 
 	rateLimit   map[string][]time.Time
 	rateLimitMu sync.Mutex
+
+	maxPreviewFileSize int64
 }
 
 // New creates a new Server.
@@ -93,14 +95,15 @@ func New(a *auth.Authenticator, staticFS fs.FS, noAuth bool, shell string) *Serv
 	os.MkdirAll(uploadDir, 0700)
 
 	s := &Server{
-		auth:           a,
-		noAuth:         noAuth,
-		shell:          shell,
-		activeSess:     make(map[*websocket.Conn]*ptysession.Session),
-		uploadDir:      uploadDir,
-		uploads:        make(map[string]*uploadEntry),
-		downloadTokens: make(map[string]*downloadEntry),
-		rateLimit:      make(map[string][]time.Time),
+		auth:               a,
+		noAuth:             noAuth,
+		shell:              shell,
+		activeSess:         make(map[*websocket.Conn]*ptysession.Session),
+		uploadDir:          uploadDir,
+		uploads:            make(map[string]*uploadEntry),
+		downloadTokens:     make(map[string]*downloadEntry),
+		rateLimit:          make(map[string][]time.Time),
+		maxPreviewFileSize: DefaultMaxPreviewFileSize,
 	}
 
 	// Recover partial uploads from disk metadata.
@@ -123,6 +126,12 @@ func New(a *auth.Authenticator, staticFS fs.FS, noAuth bool, shell string) *Serv
 	return s
 }
 
+// SetMaxPreviewFileSize overrides the maximum size in bytes of text files that
+// can be previewed.
+func (s *Server) SetMaxPreviewFileSize(limit int64) {
+	s.maxPreviewFileSize = limit
+}
+
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mux.ServeHTTP(w, r)
 }
@@ -141,10 +150,11 @@ func (s *Server) handleChallenge(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"nonce": nonce})
 }
 
-const (
-	maxEditorFileSize  = 1 << 20
-	maxPreviewFileSize = 128 << 10
-)
+// DefaultMaxPreviewFileSize is the default maximum size in bytes of text files
+// that can be previewed.
+const DefaultMaxPreviewFileSize = 256 << 10
+
+const maxEditorFileSize = 1 << 20
 
 func (s *Server) authenticateRequest(w http.ResponseWriter, r *http.Request) bool {
 	if s.noAuth {
@@ -279,7 +289,7 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, resolved)
 		return
 	}
-	if status, message := validateTextFile(resolved, info, maxPreviewFileSize, "file exceeds 128 KiB preview limit"); status != 0 {
+	if status, message := validateTextFile(resolved, info, s.maxPreviewFileSize, fmt.Sprintf("file exceeds %d byte preview limit", s.maxPreviewFileSize)); status != 0 {
 		writeJSONError(w, status, message)
 		return
 	}

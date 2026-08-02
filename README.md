@@ -125,15 +125,16 @@ ssh-keygen -p -m PEM -f ~/.ssh/id_rsa
 ## Usage
 
 ```
-./bin/webtermd [-addr <address>] [-shell <path>] [-static <dir>] [-no-auth]
+./bin/webtermd [-addr <address>] [-shell <path>] [-static <dir>] [-no-auth] [-preview-limit <bytes>]
 ```
 
-| Flag       | Default       | Description                                     |
-| ---------- | ------------- | ----------------------------------------------- |
-| `-addr`    | `:8080`       | Listen address (e.g. `:3000`, `127.0.0.1:9090`) |
-| `-shell`   | `bash`        | Shell to spawn PTY sessions with                |
-| `-no-auth` | `false`       | Disable challenge-response authentication       |
-| `-static`  | auto-detected | Path to static files directory                  |
+| Flag             | Default       | Description                                             |
+| ---------------- | ------------- | ------------------------------------------------------- |
+| `-addr`          | `:8080`       | Listen address (e.g. `:3000`, `127.0.0.1:9090`)         |
+| `-shell`         | `bash`        | Shell to spawn PTY sessions with                        |
+| `-no-auth`       | `false`       | Disable challenge-response authentication               |
+| `-static`        | auto-detected | Path to static files directory                          |
+| `-preview-limit` | `262144`      | Max bytes of text files that can be previewed (256 KiB) |
 
 ### Examples
 
