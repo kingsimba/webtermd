@@ -9,6 +9,30 @@
     box-sizing: border-box;
 }
 
+/* --- global scrollbar --- */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+::-webkit-scrollbar-thumb {
+    background: #555;
+    border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: #777;
+}
+::-webkit-scrollbar-corner {
+    background: transparent;
+}
+
+html {
+    scrollbar-width: thin;
+    scrollbar-color: #555 transparent;
+}
+
 html,
 body {
     height: 100%;
