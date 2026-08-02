@@ -9,22 +9,25 @@
 
 </div>
 
-<figure>
-  <img src="./docs/screenshot.png" alt="Split Screen">
+<figure style="text-align: center;">
   <figcaption>Split Screen</figcaption>
+  <img src="./docs/screenshot.png" alt="Split Screen">
 </figure>
 
-<figure>
-  <img src="./docs/editor.png" alt="File Editor">
+<figure style="text-align: center;">
   <figcaption>File Editor</figcaption>
+  <img src="./docs/editor.png" alt="File Editor">
 </figure>
 
-<figure>
-  <img src="./docs/image-preview.png" alt="Image Preview">
+<figure style="text-align: center;">
   <figcaption>Image Preview</figcaption>
+  <img src="./docs/image-preview.png" alt="Image Preview">
 </figure>
 
-![](./docs/screen-record.gif)
+<figure style="text-align: center;">
+  <figcaption>Screen Recording</figcaption>
+  <img src="./docs/screen-record.gif" alt="Screen Recording">
+</figure>
 
 ## Quick Start
 
