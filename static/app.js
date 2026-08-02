@@ -1211,10 +1211,19 @@
     var sudoFitAddon = null;
     var sudoWS = null;
     var sudoClipboardCleanup = null;
+    var savedSudoPassword = '';
+    var sudoUseSavedPassword = document.getElementById('sudo-use-saved-password');
+
+    function isSudoPasswordPrompt(output) {
+        // sudo's prompt may be customized, but English prompts conventionally end in a colon.
+        var plainOutput = output.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '');
+        return /(?:\[sudo\]\s*)?(?:password|passphrase)(?:\s+for\s+[^:\r\n]+)?\s*:\s*$/i.test(plainOutput);
+    }
 
     function openSudoTerminal(path, content) {
         sudoTitle.textContent = 'Saving ' + path + ' (sudo)';
         sudoModal.classList.add('open');
+        sudoUseSavedPassword.hidden = true;
 
         // Ensure terminal element is clean.
         sudoTerminalEl.innerHTML = '';
@@ -1235,8 +1244,12 @@
         sudoFitAddon = new FitAddon.FitAddon();
         sudoTerm.loadAddon(sudoFitAddon);
         sudoTerm.open(sudoTerminalEl);
+        sudoTerm.focus();
         sudoClipboardCleanup = WebtermdUtils.installClipboard(sudoTerm, sudoTerminalEl);
-        setTimeout(function () { try { sudoFitAddon.fit(); } catch (e) { } }, 100);
+        setTimeout(function () {
+            try { sudoFitAddon.fit(); } catch (e) { }
+            if (sudoTerm) sudoTerm.focus();
+        }, 100);
 
         // Connect WebSocket.
         var auth = getAuth() || { nonce: '', sig: '' };
@@ -1249,6 +1262,37 @@
         sudoWS.binaryType = 'arraybuffer';
 
         var closed = false;
+        var terminalOutput = '';
+        var typedPassword = '';
+        var capturingPassword = false;
+
+        function sendSavedPassword() {
+            if (!savedSudoPassword || !sudoWS || sudoWS.readyState !== WebSocket.OPEN) return;
+            sudoWS.send(savedSudoPassword + '\r');
+            capturingPassword = false;
+            sudoUseSavedPassword.hidden = true;
+            sudoTerm.focus();
+        }
+
+        function capturePasswordInput(data) {
+            if (!capturingPassword) return;
+            for (var index = 0; index < data.length; index++) {
+                var character = data.charAt(index);
+                if (character === '\r') {
+                    if (typedPassword) savedSudoPassword = typedPassword;
+                    typedPassword = '';
+                    capturingPassword = false;
+                    return;
+                }
+                if (character === '\x7f' || character === '\b') {
+                    typedPassword = typedPassword.slice(0, -1);
+                } else if (character === '\x15') { // Ctrl+U
+                    typedPassword = '';
+                } else if (character >= ' ') {
+                    typedPassword += character;
+                }
+            }
+        }
 
         function cleanup() {
             if (closed) return;
@@ -1257,6 +1301,7 @@
             if (sudoTerm) { try { sudoTerm.dispose(); } catch (e) { } }
             if (sudoClipboardCleanup) sudoClipboardCleanup();
             sudoTerm = null; sudoFitAddon = null; sudoWS = null; sudoClipboardCleanup = null;
+            sudoUseSavedPassword.hidden = true;
             sudoModal.classList.remove('open');
             sudoTerminalEl.innerHTML = '';
         }
@@ -1268,6 +1313,7 @@
             // Forward keystrokes to WS.
             sudoTerm.onData(function (data) {
                 if (sudoWS && sudoWS.readyState === WebSocket.OPEN) {
+                    capturePasswordInput(data);
                     sudoWS.send(data);
                 }
             });
@@ -1311,7 +1357,14 @@
                 } catch (e) { }
             } else {
                 // Binary = PTY output.
-                sudoTerm.write(new Uint8Array(ev.data));
+                var output = new TextDecoder().decode(new Uint8Array(ev.data));
+                sudoTerm.write(output);
+                terminalOutput = (terminalOutput + output).slice(-2048);
+                if (!capturingPassword && isSudoPasswordPrompt(terminalOutput)) {
+                    typedPassword = '';
+                    capturingPassword = true;
+                    sudoUseSavedPassword.hidden = !savedSudoPassword;
+                }
             }
         };
 
@@ -1327,6 +1380,8 @@
 
         // Close button kills the process.
         sudoClose.onclick = function () { cleanup(); };
+        sudoUseSavedPassword.onpointerdown = function (event) { event.preventDefault(); };
+        sudoUseSavedPassword.onclick = sendSavedPassword;
 
         // Click outside to cancel.
         sudoModal.onclick = function (e) {

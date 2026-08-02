@@ -1092,6 +1092,7 @@ body {
     background: #1e1e1e;
     border: 1px solid #ff9800;
     border-radius: 6px;
+    position: relative;
     width: 700px;
     max-width: 85vw;
     max-height: 50vh;
@@ -1140,4 +1141,23 @@ body {
 
 #sudo-terminal .xterm {
     height: 100%;
+}
+
+#sudo-use-saved-password {
+    position: absolute;
+    right: 14px;
+    bottom: 14px;
+    background: #5c3a00;
+    border: 1px solid #ff9800;
+    border-radius: 4px;
+    color: #fff;
+    cursor: pointer;
+    font-family: var(--system-font);
+    font-size: 12px;
+    padding: 6px 10px;
+    text-transform: uppercase;
+}
+
+#sudo-use-saved-password:hover {
+    background: #7a4d00;
 }

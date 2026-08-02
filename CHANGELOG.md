@@ -1,5 +1,6 @@
 # Changelog
 
+- 2026-08-02 webtermd: Add in-memory sudo password reuse
 - 2026-08-02 webtermd: Fix sudo file saves
 - 2026-08-02 webtermd: Split file content and metadata into separate REST endpoints
 - 2026-08-01 webtermd: Fix Ctrl+V paste duplicating content in text editor
