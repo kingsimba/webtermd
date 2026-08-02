@@ -314,6 +314,94 @@ The same nonce+signature authenticates both `/ws` and `/ws/cmd`. The server exte
 
 **Control messages**: `upload-init`, `upload-commit`, `upload-status`, `upload-cancel`, `delete-file` (Client→Server); `session` (with upload token), `upload-init`, `upload-done`, `upload-status`, `upload-error`, `file-deleted` (Server→Client).
 
+### WS /ws/sudo
+
+Opens a dedicated PTY session running `sudo dd of=<path>` for saving system files that require root privileges. The PTY terminal output is streamed to the client so the user can complete sudo authentication when required.
+
+**Connection**
+
+```
+ws://host:port/ws/sudo?path=<abs_path>&nonce=<base64>&signature=<base64>
+```
+
+| Parameter   | Description                         |
+| ----------- | ----------------------------------- |
+| `path`      | Absolute path of the file to write  |
+| `nonce`     | Challenge from `GET /api/challenge` |
+| `signature` | Nonce signed with the private key   |
+
+**Message format**
+
+| Type   | Direction       | Content                         |
+| ------ | --------------- | ------------------------------- |
+| Binary | Server → Client | PTY output (sudo prompts, etc.) |
+| Binary | Client → Server | Keystrokes (password, etc.)     |
+| Text   | Client → Server | JSON control messages           |
+| Text   | Server → Client | JSON status messages            |
+
+**Client → Server messages**
+
+##### sudo-save
+
+Initiates the sudo save operation. Must be the first message after the WebSocket opens.
+
+```json
+{ "type": "sudo-save", "content": "file contents here..." }
+```
+
+| Field     | Description              |
+| --------- | ------------------------ |
+| `content` | New file content (UTF-8) |
+
+The server stages content in a private temporary file. sudo reads the password from the PTY controlling terminal; after authentication, `dd` copies the staged file to the target without stdout output.
+
+##### resize
+
+Same as the terminal WebSocket — adjusts the PTY window size for the sudo session.
+
+**Server → Client messages**
+
+##### session
+
+Sent immediately after the PTY is spawned.
+
+```json
+{ "type": "session", "hostname": "myserver" }
+```
+
+##### sudo-exit
+
+Sent when the sudo dd process exits.
+
+```json
+{ "type": "sudo-exit", "code": 0 }
+```
+
+| Field  | Description             |
+| ------ | ----------------------- |
+| `code` | Exit code (0 = success) |
+
+##### sudo-error
+
+Sent before the PTY is spawned if setup fails.
+
+```json
+{ "type": "sudo-error", "message": "spawn sudo: permission denied" }
+```
+
+**Lifecycle**
+
+1. Client opens `WS /ws/sudo?path=/etc/hosts&nonce=...&signature=...`
+2. Client sends `{type: "sudo-save", content: "..."}`
+3. Server stages content in a private temporary file and spawns `sudo dd if=<temp> of=<path>` in a PTY
+4. Server sends `session` message
+5. Server streams PTY output as binary messages; sudo may prompt for a password
+6. When prompted, user types password in the terminal — keystrokes flow to the PTY
+7. sudo writes the file and exits, or exits with an error
+8. Server sends `sudo-exit` with the exit code and closes the WebSocket
+
+The WebSocket does NOT auto-reconnect. The client opens a new connection for each sudo save attempt.
+
 ---
 
 ### WebSocket Control Messages

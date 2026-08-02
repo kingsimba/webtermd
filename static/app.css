@@ -616,6 +616,15 @@ body {
     background: #444;
 }
 
+#preview-save.sudo {
+    border-color: #ff9800;
+    color: #ff9800;
+}
+
+#preview-save.sudo:hover {
+    background: #3e2723;
+}
+
 #preview-close {
     background: none;
     border: 1px solid #555;
@@ -1059,4 +1068,76 @@ body {
     font-size: 11px;
     color: #e0e0e0;
     line-height: 1.4;
+}
+
+/* --- sudo modal --- */
+#sudo-modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.75);
+    z-index: 250;
+    align-items: center;
+    justify-content: center;
+}
+
+#sudo-modal.open {
+    display: flex;
+}
+
+#sudo-dialog {
+    background: #1e1e1e;
+    border: 1px solid #ff9800;
+    border-radius: 6px;
+    width: 700px;
+    max-width: 85vw;
+    max-height: 50vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+#sudo-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 14px;
+    border-bottom: 1px solid #3c3c3c;
+    flex-shrink: 0;
+}
+
+#sudo-title {
+    color: #ff9800;
+    font-family: var(--mono-font);
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#sudo-close {
+    background: none;
+    border: none;
+    color: #ccc;
+    cursor: pointer;
+    font-size: 16px;
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+#sudo-close:hover {
+    background: #444;
+}
+
+#sudo-terminal {
+    flex: 1;
+    min-height: 0;
+    padding: 4px;
+}
+
+#sudo-terminal .xterm {
+    height: 100%;
 }

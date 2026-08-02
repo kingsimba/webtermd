@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -110,6 +111,7 @@ func New(a *auth.Authenticator, staticFS fs.FS, noAuth bool, shell string) *Serv
 	s.mux.HandleFunc("/files/{filename}/meta", s.handleFileMeta)
 	s.mux.HandleFunc("/ws", s.handleWS)
 	s.mux.HandleFunc("/ws/cmd", s.handleCmdWS)
+	s.mux.HandleFunc("/ws/sudo", s.handleSudoWS)
 	s.mux.HandleFunc("/api/upload/", s.handleUpload)
 	s.mux.HandleFunc("/api/download/", s.handleDownload)
 	s.mux.Handle("/", http.FileServerFS(staticFS))
@@ -1011,6 +1013,193 @@ func (s *Server) handleCmdWS(w http.ResponseWriter, r *http.Request) {
 			s.handleDeleteFile(conn, msg, cmdToken)
 		}
 	}
+}
+
+func (s *Server) handleSudoWS(w http.ResponseWriter, r *http.Request) {
+	var wsNonce string
+	if !s.noAuth {
+		nonce := r.URL.Query().Get("nonce")
+		signature := r.URL.Query().Get("signature")
+		if nonce == "" || signature == "" {
+			http.Error(w, "missing nonce or signature", http.StatusBadRequest)
+			return
+		}
+		if !s.auth.Verify(nonce, signature) {
+			http.Error(w, "authentication failed", http.StatusUnauthorized)
+			return
+		}
+		wsNonce = nonce
+	}
+
+	path := r.URL.Query().Get("path")
+	if path == "" || !filepath.IsAbs(path) {
+		http.Error(w, "missing or invalid path", http.StatusBadRequest)
+		return
+	}
+
+	rawConn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("websocket upgrade: %v", err)
+		return
+	}
+	conn := &wsConn{Conn: rawConn}
+	defer rawConn.Close()
+
+	if wsNonce != "" {
+		nonceStop := make(chan struct{})
+		defer close(nonceStop)
+		go func() {
+			ticker := time.NewTicker(1 * time.Minute)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-nonceStop:
+					return
+				case <-ticker.C:
+					s.auth.ExtendNonce(wsNonce)
+				}
+			}
+		}()
+	}
+
+	// Read the sudo-save message with a timeout.
+	rawConn.SetReadDeadline(time.Now().Add(10 * time.Second))
+	_, msg, err := conn.ReadMessage()
+	if err != nil {
+		return
+	}
+	rawConn.SetReadDeadline(time.Time{})
+
+	var init struct {
+		Type    string `json:"type"`
+		Content string `json:"content"`
+	}
+	if json.Unmarshal(msg, &init) != nil || init.Type != "sudo-save" {
+		s.wsSendJSON(conn, map[string]string{"type": "sudo-error", "message": "invalid sudo-save message"})
+		return
+	}
+
+	contentFile, err := os.CreateTemp(s.uploadDir, "sudo-save-*")
+	if err != nil {
+		s.wsSendJSON(conn, map[string]string{"type": "sudo-error", "message": "stage save: " + err.Error()})
+		return
+	}
+	contentPath := contentFile.Name()
+	defer os.Remove(contentPath)
+	if _, err := contentFile.WriteString(init.Content); err != nil {
+		contentFile.Close()
+		s.wsSendJSON(conn, map[string]string{"type": "sudo-error", "message": "stage save: " + err.Error()})
+		return
+	}
+	if err := contentFile.Close(); err != nil {
+		s.wsSendJSON(conn, map[string]string{"type": "sudo-error", "message": "stage save: " + err.Error()})
+		return
+	}
+
+	// The PTY library puts the slave TTY on stdin so sudo can prompt for the
+	// password. dd reads the staged content by path after sudo authenticates.
+	cmd := exec.Command("sudo", "dd", "if="+contentPath, "of="+path, "status=none")
+	sess, err := ptysession.StartCommand(cmd)
+	if err != nil {
+		s.wsSendJSON(conn, map[string]string{"type": "sudo-error", "message": "spawn sudo: " + err.Error()})
+		return
+	}
+	defer sess.Close()
+
+	hostname, _ := os.Hostname()
+	s.wsSendJSON(conn, map[string]string{
+		"type":     "session",
+		"hostname": hostname,
+	})
+
+	// PTY → WebSocket
+	done := make(chan struct{})
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			n, err := sess.Read(buf)
+			if err != nil {
+				close(done)
+				return
+			}
+			if err := conn.writeMessage(websocket.BinaryMessage, buf[:n]); err != nil {
+				close(done)
+				return
+			}
+		}
+	}()
+
+	// WebSocket → PTY (password keystrokes, resize).
+	inputDone := make(chan struct{})
+	defer close(inputDone)
+	type sudoInput struct {
+		message []byte
+		err     error
+	}
+	inputs := make(chan sudoInput, 1)
+	go func() {
+		for {
+			_, message, err := conn.ReadMessage()
+			select {
+			case inputs <- sudoInput{message: message, err: err}:
+			case <-inputDone:
+				return
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	clientDisconnected := false
+wsLoop:
+	for {
+		select {
+		case <-done:
+			break wsLoop
+		case input := <-inputs:
+			if input.err != nil {
+				clientDisconnected = true
+				break wsLoop
+			}
+
+			msg := input.message
+			var ctrl struct {
+				Type string `json:"type"`
+			}
+			if json.Unmarshal(msg, &ctrl) == nil && ctrl.Type == "resize" {
+				var resize struct {
+					Rows uint16 `json:"rows"`
+					Cols uint16 `json:"cols"`
+				}
+				if json.Unmarshal(msg, &resize) == nil && resize.Rows > 0 && resize.Cols > 0 {
+					_ = sess.Resize(resize.Rows, resize.Cols)
+				}
+				continue
+			}
+
+			// Raw bytes → PTY (password input etc.).
+			sess.Write(msg)
+		}
+	}
+
+	if clientDisconnected {
+		_ = sess.Close()
+		return
+	}
+
+	// Collect the exit code after the PTY reader observes process exit.
+	<-done
+	_ = sess.Close()
+
+	exitCode := 0
+	if cmd.ProcessState != nil {
+		exitCode = cmd.ProcessState.ExitCode()
+	}
+	s.wsSendJSON(conn, map[string]interface{}{
+		"type": "sudo-exit",
+		"code": exitCode,
+	})
 }
 
 func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {

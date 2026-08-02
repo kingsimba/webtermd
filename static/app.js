@@ -70,15 +70,65 @@
     clipSink.setAttribute('spellcheck', 'false');
     document.body.appendChild(clipSink);
 
+    var clipboardTarget = null;
     clipSink.addEventListener('paste', function (ev) {
         var data = ev.clipboardData ? ev.clipboardData.getData('text/plain') : '';
         ev.preventDefault();
-        var fp = getFocusedPane();
-        if (fp) {
-            fp.term.focus();
-            if (data) fp.term.paste(data);
+        if (clipboardTarget) {
+            clipboardTarget.focus();
+            if (data) clipboardTarget.paste(data);
         }
     });
+
+    function installClipboardShortcuts(term, host) {
+        function handleKeydown(e) {
+            if (!e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
+
+            // Ctrl+C: copy selection, or fall through to SIGINT.
+            if (e.key === 'c' || e.key === 'C') {
+                var selection = term.getSelection();
+                if (selection) {
+                    e.preventDefault();
+                    e.stopImmediatePropagation();
+                    term.clearSelection();
+                    if (hasClipboardAPI) {
+                        navigator.clipboard.writeText(selection).catch(function () { });
+                    } else {
+                        clipSink.value = selection;
+                        clipSink.select();
+                        clipSink.focus();
+                        try { document.execCommand('copy'); } catch (err) { }
+                        setTimeout(function () { term.focus(); }, 0);
+                    }
+                }
+                return;
+            }
+
+            // Ctrl+V: paste from clipboard.
+            if (e.key === 'v' || e.key === 'V') {
+                e.stopImmediatePropagation();
+                if (hasClipboardAPI) {
+                    e.preventDefault();
+                    navigator.clipboard.readText().then(function (text) {
+                        if (text) term.paste(text);
+                    }).catch(function () { });
+                } else {
+                    clipboardTarget = term;
+                    clipSink.value = '';
+                    clipSink.focus();
+                    setTimeout(function () {
+                        if (document.activeElement === clipSink) term.focus();
+                        clipboardTarget = null;
+                    }, 0);
+                }
+            }
+        }
+
+        host.addEventListener('keydown', handleKeydown, true);
+        return function () {
+            host.removeEventListener('keydown', handleKeydown, true);
+        };
+    }
 
     // --- global state ---
     var wsCmd = null;
@@ -266,6 +316,7 @@
         pane.fitAddon = new FitAddon.FitAddon();
         pane.term.loadAddon(pane.fitAddon);
         pane.term.open(pane.terminalEl);
+        installClipboardShortcuts(pane.term, pane.terminalEl);
 
         // Fit after a short delay to let the DOM settle.
         setTimeout(function () { fitPane(pane); }, 100);
@@ -939,48 +990,6 @@
             }
         }
 
-        // --- clipboard (Ctrl+C/V, no Alt/Meta, no Shift) ---
-        if (!e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
-        var fp = getFocusedPane();
-        if (!fp || !fp.term) return;
-
-        // Ctrl+C: copy selection, or fall through to SIGINT.
-        if (e.key === 'c' || e.key === 'C') {
-            var sel = fp.term.getSelection();
-            if (sel) {
-                e.preventDefault();
-                e.stopImmediatePropagation();
-                fp.term.clearSelection();
-                if (hasClipboardAPI) {
-                    navigator.clipboard.writeText(sel).catch(function () { });
-                } else {
-                    clipSink.value = sel;
-                    clipSink.select();
-                    clipSink.focus();
-                    try { document.execCommand('copy'); } catch (err) { }
-                    setTimeout(function () { fp.term.focus(); }, 0);
-                }
-            }
-            return;
-        }
-
-        // Ctrl+V: paste from clipboard.
-        if (e.key === 'v' || e.key === 'V') {
-            e.stopImmediatePropagation();
-            if (hasClipboardAPI) {
-                e.preventDefault();
-                navigator.clipboard.readText().then(function (text) {
-                    if (text) fp.term.paste(text);
-                }).catch(function () { });
-            } else {
-                clipSink.value = '';
-                clipSink.focus();
-                setTimeout(function () {
-                    if (document.activeElement === clipSink) fp.term.focus();
-                }, 0);
-            }
-            return;
-        }
     }, true);
 
     // --- toolbar display ---
@@ -1566,19 +1575,158 @@
                 pane.lastListedCWD = '';
                 pane.ws.send(JSON.stringify({ type: 'list-files' }));
             }
+        },
+        onSudoSave: function (path, cwd, content) {
+            var absPath = cwd ? cwd.replace(/\/$/, '') + '/' + path : path;
+            openSudoTerminal(absPath, content);
         }
     });
 
-    document.addEventListener('keydown', function (e) {
-        if (e.key === 'Escape' && helpOverlay.classList.contains('open')) {
-            helpOverlay.classList.remove('open');
+    // --- sudo terminal popover ---
+    var sudoModal = document.getElementById('sudo-modal');
+    var sudoTitle = document.getElementById('sudo-title');
+    var sudoClose = document.getElementById('sudo-close');
+    var sudoTerminalEl = document.getElementById('sudo-terminal');
+    var sudoTerm = null;
+    var sudoFitAddon = null;
+    var sudoWS = null;
+    var sudoClipboardCleanup = null;
+
+    function openSudoTerminal(path, content) {
+        sudoTitle.textContent = 'Saving ' + path + ' (sudo)';
+        sudoModal.classList.add('open');
+
+        // Ensure terminal element is clean.
+        sudoTerminalEl.innerHTML = '';
+
+        sudoTerm = new Terminal({
+            cursorBlink: true,
+            fontSize: 14,
+            fontFamily: '"JetBrains Mono", Menlo, Monaco, "Courier New", monospace',
+            theme: {
+                background: '#1e1e1e',
+                foreground: '#d4d4d4',
+                cursor: '#d4d4d4',
+                selectionBackground: '#264f78'
+            },
+            allowProposedApi: true
+        });
+
+        sudoFitAddon = new FitAddon.FitAddon();
+        sudoTerm.loadAddon(sudoFitAddon);
+        sudoTerm.open(sudoTerminalEl);
+        sudoClipboardCleanup = installClipboardShortcuts(sudoTerm, sudoTerminalEl);
+        setTimeout(function () { try { sudoFitAddon.fit(); } catch (e) { } }, 100);
+
+        // Connect WebSocket.
+        var auth = getAuth() || { nonce: '', sig: '' };
+        var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        var url = proto + '//' + location.host + basePath +
+            '/ws/sudo?path=' + encodeURIComponent(path) +
+            '&nonce=' + encodeURIComponent(auth.nonce) +
+            '&signature=' + encodeURIComponent(auth.sig);
+        sudoWS = new WebSocket(url);
+        sudoWS.binaryType = 'arraybuffer';
+
+        var closed = false;
+
+        function cleanup() {
+            if (closed) return;
+            closed = true;
+            if (sudoWS) { try { sudoWS.close(); } catch (e) { } }
+            if (sudoTerm) { try { sudoTerm.dispose(); } catch (e) { } }
+            if (sudoClipboardCleanup) sudoClipboardCleanup();
+            sudoTerm = null; sudoFitAddon = null; sudoWS = null; sudoClipboardCleanup = null;
+            sudoModal.classList.remove('open');
+            sudoTerminalEl.innerHTML = '';
         }
-        if ((e.key === 'q' || e.key === 'Q') && e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey &&
-            helpOverlay.classList.contains('open')) {
-            e.preventDefault();
-            helpOverlay.classList.remove('open');
+
+        sudoWS.onopen = function () {
+            // Send content immediately.
+            sudoWS.send(JSON.stringify({ type: 'sudo-save', content: content }));
+
+            // Forward keystrokes to WS.
+            sudoTerm.onData(function (data) {
+                if (sudoWS && sudoWS.readyState === WebSocket.OPEN) {
+                    sudoWS.send(data);
+                }
+            });
+
+            // Send resize events.
+            sudoTerm.onResize(function (_a) {
+                if (sudoWS && sudoWS.readyState === WebSocket.OPEN) {
+                    sudoWS.send(JSON.stringify({ type: 'resize', rows: _a.rows, cols: _a.cols }));
+                }
+            });
+
+            // Send current terminal size.
+            sudoWS.send(JSON.stringify({ type: 'resize', rows: sudoTerm.rows, cols: sudoTerm.cols }));
+
+            try { sudoFitAddon.fit(); } catch (e) { }
+        };
+
+        sudoWS.onmessage = function (ev) {
+            if (typeof ev.data === 'string') {
+                try {
+                    var msg = JSON.parse(ev.data);
+                    if (msg.type === 'sudo-exit') {
+                        if (msg.code === 0) {
+                            // Success: close automatically after a brief delay.
+                            sudoTerm.write('\r\n\x1b[32m[saved successfully]\x1b[0m\r\n');
+                            setTimeout(cleanup, 800);
+                            // Refresh file list in the main pane.
+                            var pane = getFocusedPane();
+                            if (pane && pane.ws && pane.ws.readyState === WebSocket.OPEN) {
+                                pane.lastListedCWD = '';
+                                pane.ws.send(JSON.stringify({ type: 'list-files' }));
+                            }
+                        } else {
+                            // Failure: keep open so user can read the error.
+                            sudoTitle.textContent = 'Saving ' + path + ' (failed, code ' + msg.code + ')';
+                            sudoTitle.style.color = '#d32f2f';
+                        }
+                    } else if (msg.type === 'sudo-error') {
+                        sudoTerm.write('\r\n\x1b[31m' + msg.message + '\x1b[0m\r\n');
+                    }
+                } catch (e) { }
+            } else {
+                // Binary = PTY output.
+                sudoTerm.write(new Uint8Array(ev.data));
+            }
+        };
+
+        sudoWS.onclose = function () {
+            if (!closed) {
+                sudoTerm.write('\r\n\x1b[33m[connection closed]\x1b[0m\r\n');
+            }
+        };
+
+        sudoWS.onerror = function () {
+            sudoTerm.write('\r\n\x1b[31m[connection error]\x1b[0m\r\n');
+        };
+
+        // Close button kills the process.
+        sudoClose.onclick = function () { cleanup(); };
+
+        // Click outside to cancel.
+        sudoModal.onclick = function (e) {
+            if (e.target === sudoModal) cleanup();
+        };
+
+        // Escape to cancel.
+        function onKey(e) {
+            if (e.key === 'Escape' && sudoModal.classList.contains('open')) {
+                cleanup();
+            }
         }
-    });
+        document.addEventListener('keydown', onKey);
+        // Clean up the listener when modal closes.
+        var origCleanup = cleanup;
+        cleanup = function () {
+            document.removeEventListener('keydown', onKey);
+            origCleanup();
+        };
+    }
 
     // --- help popover ---
     var helpOverlay = document.getElementById('help-overlay');

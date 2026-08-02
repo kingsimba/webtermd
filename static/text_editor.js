@@ -15,6 +15,7 @@
         var originalContent = '';
         var dirty = false;
         var normalizing = false;
+        var isWritable = false;
         function updateTitle() {
             title.textContent = dirty ? path + ' (modified)' : path;
         }
@@ -411,29 +412,36 @@
                     return;
                 }
             }
-            save.disabled = true;
-            var headers = requestHeaders();
-            headers['Content-Type'] = 'application/json';
-            fetch(options.basePath + '/files/' + encodeURIComponent(path) + '?path=' + encodeURIComponent(cwd), {
-                method: 'PUT', headers: headers,
-                body: JSON.stringify({ content: content })
-            }).then(function (response) {
-                if (response.ok) return response.json();
-                return response.json().then(function (result) {
-                    return Promise.reject(new Error(result.error || 'save failed'));
+            if (isWritable) {
+                save.disabled = true;
+                var headers = requestHeaders();
+                headers['Content-Type'] = 'application/json';
+                fetch(options.basePath + '/files/' + encodeURIComponent(path) + '?path=' + encodeURIComponent(cwd), {
+                    method: 'PUT', headers: headers,
+                    body: JSON.stringify({ content: content })
+                }).then(function (response) {
+                    if (response.ok) return response.json();
+                    return response.json().then(function (result) {
+                        return Promise.reject(new Error(result.error || 'save failed'));
+                    });
+                }).then(function () {
+                    originalContent = content;
+                    dirty = false;
+                    updateTitle();
+                    save.textContent = 'Saved';
+                    options.onSaved();
+                }).catch(function (exception) {
+                    options.showError('Save: ' + exception.message);
+                }).finally(function () {
+                    save.disabled = false;
+                    setTimeout(function () { save.textContent = 'Save'; }, 1200);
                 });
-            }).then(function () {
-                originalContent = content;
-                dirty = false;
-                updateTitle();
-                save.textContent = 'Saved';
-                options.onSaved();
-            }).catch(function (exception) {
-                options.showError('Save: ' + exception.message);
-            }).finally(function () {
+            } else {
+                // Sudo save — open the sudo terminal popover.
+                save.disabled = true;
+                options.onSudoSave(path, cwd, content);
                 save.disabled = false;
-                setTimeout(function () { save.textContent = 'Save'; }, 1200);
-            });
+            }
         }
 
         function blinkSave() {
@@ -521,9 +529,15 @@
                 render(originalContent);
                 textWrap.style.display = 'grid';
                 status.style.display = 'block';
-                if (data && data.writable) {
-                    text.contentEditable = 'true';
-                    save.style.display = '';
+                text.contentEditable = 'true';
+                save.style.display = '';
+                isWritable = !!(data && data.writable);
+                if (isWritable) {
+                    save.textContent = 'Save';
+                    save.classList.remove('sudo');
+                } else {
+                    save.textContent = 'Save (sudo)';
+                    save.classList.add('sudo');
                 }
             }
             modal.classList.add('open');

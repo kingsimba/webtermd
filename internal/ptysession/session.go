@@ -23,7 +23,11 @@ type Session struct {
 func New(shell string) (*Session, error) {
 	cmd := exec.Command(shell)
 	cmd.Env = append(cmd.Environ(), "TERM=xterm-256color")
+	return StartCommand(cmd)
+}
 
+// StartCommand spawns a PTY attached to the given command and returns a Session.
+func StartCommand(cmd *exec.Cmd) (*Session, error) {
 	f, err := pty.Start(cmd)
 	if err != nil {
 		return nil, err
