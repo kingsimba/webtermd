@@ -151,6 +151,10 @@
     function destroyPane(id) {
         var p = panes[id];
         if (!p) return;
+        if (paneEditors && paneEditors[id]) {
+            try { paneEditors[id].close(); } catch (e) { }
+            delete paneEditors[id];
+        }
         if (p.ws) {
             try { p.ws.close(); } catch (e) { }
         }
@@ -329,7 +333,10 @@
                         var newAtShell = shells.indexOf(msg.proc) !== -1;
                         if (newAtShell !== pane.isAtShell) {
                             pane.isAtShell = newAtShell;
-                            if (pane.id === focusedPaneId) renderFiltered();
+                            if (pane.id === focusedPaneId) {
+                                setCWD(pane.cwd);
+                                renderFiltered();
+                            }
                         }
                         break;
 
@@ -652,6 +659,14 @@
 
     // --- layout rendering ---
     function renderLayout(container, node) {
+        // Detach editor modals from containers being rebuilt so they survive
+        // the innerHTML clear.
+        for (var eid in paneEditors) {
+            var ed = paneEditors[eid];
+            if (ed && ed.modal && ed.modal.parentNode && container.contains(ed.modal)) {
+                ed.modal.parentNode.removeChild(ed.modal);
+            }
+        }
         container.innerHTML = '';
 
         if (node.type === 'pane') {
@@ -734,6 +749,12 @@
             // Focus indicator.
             if (pane.id === focusedPaneId) {
                 pane.container.classList.add('focused');
+            }
+
+            // Re-attach editor modal that was detached before the rebuild.
+            var reEd = paneEditors[pane.id];
+            if (reEd && reEd.modal && reEd.isOpen && reEd.isOpen()) {
+                pane.container.appendChild(reEd.modal);
             }
 
             return;
@@ -898,30 +919,36 @@
             container.textContent = path || '-';
             return;
         }
+        var fp = getFocusedPane();
+        var interactive = fp && fp.isAtShell && !focusedEditorOpen();
         // Split into segments: "/" "home/" "simba/" ...
         var parts = path.split('/');
         if (parts[0] === '') {
             // Absolute path — first segment is the root.
             parts.shift();
             var rootSpan = document.createElement('span');
-            rootSpan.className = 'cwd-seg';
+            rootSpan.className = interactive ? 'cwd-seg' : '';
             rootSpan.textContent = '/';
-            rootSpan.addEventListener('click', function () {
-                cdTo('/');
-            });
+            if (interactive) {
+                rootSpan.addEventListener('click', function () {
+                    cdTo('/');
+                });
+            }
             container.appendChild(rootSpan);
         }
         for (var i = 0; i < parts.length; i++) {
             if (parts[i] === '') continue;
             var seg = document.createElement('span');
-            seg.className = 'cwd-seg';
+            seg.className = interactive ? 'cwd-seg' : '';
             seg.textContent = parts[i] + '/';
-            seg.addEventListener('click', (function (segments, idx) {
-                return function () {
-                    var target = '/' + segments.slice(0, idx + 1).join('/');
-                    cdTo(target);
-                };
-            })(parts, i));
+            if (interactive) {
+                seg.addEventListener('click', (function (segments, idx) {
+                    return function () {
+                        var target = '/' + segments.slice(0, idx + 1).join('/');
+                        cdTo(target);
+                    };
+                })(parts, i));
+            }
             container.appendChild(seg);
         }
     }
@@ -984,7 +1011,7 @@
             var dotDot = document.createElement('div');
             dotDot.className = 'file-item';
             var ddName = document.createElement('span');
-            var isShell = fp ? fp.isAtShell : true;
+            var isShell = fp ? fp.isAtShell && !focusedEditorOpen() : !focusedEditorOpen();
             ddName.className = 'name is-dir';
             dotDot.appendChild(ddName);
             var ddText = document.createElement('span');
@@ -1022,8 +1049,8 @@
             name.className = 'name' + (f.isDir ? ' is-dir' : '') + (f.isSymlink ? ' is-symlink' : '');
             var nameText = document.createElement('span');
             var fp2 = getFocusedPane();
-            var clickable = f.isDir && fp2 && fp2.isAtShell;
-            var previewable = !f.isDir && isPreviewable(f.name);
+            var clickable = f.isDir && fp2 && fp2.isAtShell && !focusedEditorOpen();
+            var previewable = !f.isDir && isPreviewable(f.name) && fp2 && fp2.isAtShell && !focusedEditorOpen();
             nameText.className = 'name-text' + (clickable ? ' clickable' : '') + (previewable ? ' preview-link' : '');
             nameText.textContent = f.name + (f.isDir ? '/' : '');
             nameText.title = f.name;
@@ -1046,14 +1073,16 @@
                 item.appendChild(size);
 
                 // Context menu to delete file
-                item.addEventListener('contextmenu', function (e) {
-                    e.preventDefault();
-                    var fpc = getFocusedPane();
-                    var fileCwd = fpc ? fpc.lastListedCWD || fpc.cwd : '';
-                    if (!fileCwd) return;
-                    var absPath = fileCwd.replace(/\/$/, '') + '/' + f.name;
-                    showFileContextMenu(e.clientX, e.clientY, f.name, absPath, item);
-                });
+                if (!focusedEditorOpen()) {
+                    item.addEventListener('contextmenu', function (e) {
+                        e.preventDefault();
+                        var fpc = getFocusedPane();
+                        var fileCwd = fpc ? fpc.lastListedCWD || fpc.cwd : '';
+                        if (!fileCwd) return;
+                        var absPath = fileCwd.replace(/\/$/, '') + '/' + f.name;
+                        showFileContextMenu(e.clientX, e.clientY, f.name, absPath, item);
+                    });
+                }
 
                 if (previewable) {
                     nameText.title = 'Preview ' + f.name;
@@ -1066,6 +1095,7 @@
                             showError('Not connected');
                             return;
                         }
+                        var editor = getPaneEditor(f3);
                         var previewURL = basePath + '/files/' + encodeURIComponent(f.name) + '?path=' + encodeURIComponent(previewCwd);
                         fetch(previewURL, {
                             headers: {
@@ -1080,7 +1110,9 @@
                             }
                             if (response.headers.get('Content-Type').indexOf('image/') === 0) {
                                 return response.blob().then(function (image) {
-                                    textEditor.open(f.name, { type: 'image', url: URL.createObjectURL(image) }, previewCwd);
+                                    editor.open(f.name, { type: 'image', url: URL.createObjectURL(image) }, previewCwd);
+                                    renderFiltered();
+                                    setCWD(f3.cwd);
                                 });
                             }
                             return response.text().then(function (content) {
@@ -1096,7 +1128,9 @@
                                 }).catch(function () {
                                     return { writable: false };
                                 }).then(function (meta) {
-                                    textEditor.open(f.name, { type: 'text', content: content, writable: meta.writable }, previewCwd);
+                                    editor.open(f.name, { type: 'text', content: content, writable: meta.writable }, previewCwd);
+                                    renderFiltered();
+                                    setCWD(f3.cwd);
                                 });
                             });
                         }).catch(function (exception) {
@@ -1187,22 +1221,45 @@
         return !nonPreviewExts[name.slice(dot + 1).toLowerCase()];
     }
 
-    var textEditor = new WebtermdTextEditor({
-        basePath: basePath,
-        getAuth: getAuth,
-        showError: showError,
-        onSaved: function () {
-            var pane = getFocusedPane();
-            if (pane && pane.ws && pane.ws.readyState === WebSocket.OPEN) {
-                pane.lastListedCWD = '';
-                pane.ws.send(JSON.stringify({ type: 'list-files' }));
+    // One editor per terminal pane so each split can edit its own file.
+    var paneEditors = {};
+    function getPaneEditor(pane) {
+        var ed = paneEditors[pane.id];
+        if (ed) return ed;
+        ed = new WebtermdTextEditor({
+            basePath: basePath,
+            getAuth: getAuth,
+            showError: showError,
+            getContainer: function () {
+                return pane.container || null;
+            },
+            isActive: function () {
+                var fp = getFocusedPane();
+                return !!fp && fp.id === pane.id;
+            },
+            onSaved: function () {
+                if (pane && pane.ws && pane.ws.readyState === WebSocket.OPEN) {
+                    pane.lastListedCWD = '';
+                    pane.ws.send(JSON.stringify({ type: 'list-files' }));
+                }
+            },
+            onSudoSave: function (path, cwd, content) {
+                var absPath = cwd ? cwd.replace(/\/$/, '') + '/' + path : path;
+                openSudoTerminal(absPath, content);
+            },
+            onClose: function () {
+                renderFiltered();
+                if (pane && pane.cwd) setCWD(pane.cwd);
             }
-        },
-        onSudoSave: function (path, cwd, content) {
-            var absPath = cwd ? cwd.replace(/\/$/, '') + '/' + path : path;
-            openSudoTerminal(absPath, content);
-        }
-    });
+        });
+        paneEditors[pane.id] = ed;
+        return ed;
+    }
+    function focusedEditorOpen() {
+        var fp = getFocusedPane();
+        var ed = fp && paneEditors[fp.id];
+        return !!(ed && ed.isOpen());
+    }
 
     // --- sudo terminal popover ---
     var sudoModal = document.getElementById('sudo-modal');

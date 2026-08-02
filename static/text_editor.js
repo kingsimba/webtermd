@@ -1,15 +1,78 @@
 (function () {
 
+    function buildModal() {
+        var modal = document.createElement('div');
+        modal.className = 'preview-modal';
+
+        var dialog = document.createElement('div');
+        dialog.className = 'preview-dialog';
+
+        var header = document.createElement('div');
+        header.className = 'preview-header';
+
+        var title = document.createElement('span');
+        title.className = 'preview-title';
+
+        var actions = document.createElement('div');
+        actions.className = 'preview-actions';
+
+        var save = document.createElement('button');
+        save.type = 'button';
+        save.className = 'preview-save';
+        save.textContent = 'Save';
+
+        var closeBtn = document.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.className = 'preview-close';
+        closeBtn.textContent = '✕';
+
+        actions.appendChild(save);
+        actions.appendChild(closeBtn);
+        header.appendChild(title);
+        header.appendChild(actions);
+
+        var body = document.createElement('div');
+        body.className = 'preview-body';
+
+        var textWrap = document.createElement('div');
+        textWrap.className = 'preview-text-wrap';
+        var text = document.createElement('pre');
+        text.className = 'preview-text';
+        textWrap.appendChild(text);
+
+        var image = document.createElement('img');
+        image.className = 'preview-img';
+
+        body.appendChild(textWrap);
+        body.appendChild(image);
+
+        var status = document.createElement('div');
+        status.className = 'preview-status';
+
+        dialog.appendChild(header);
+        dialog.appendChild(body);
+        dialog.appendChild(status);
+        modal.appendChild(dialog);
+
+        return {
+            modal: modal, dialog: dialog, title: title, save: save,
+            closeBtn: closeBtn, body: body, textWrap: textWrap,
+            text: text, image: image, status: status
+        };
+    }
+
     function TextEditor(options) {
-        var modal = document.getElementById('preview-modal');
-        var title = document.getElementById('preview-title');
-        var textWrap = document.getElementById('preview-text-wrap');
-        var text = document.getElementById('preview-text');
-        var image = document.getElementById('preview-img');
-        var dialog = document.getElementById('preview-dialog');
-        var body = document.getElementById('preview-body');
-        var save = document.getElementById('preview-save');
-        var status = document.getElementById('preview-status');
+        var el = buildModal();
+        var modal = el.modal;
+        var title = el.title;
+        var textWrap = el.textWrap;
+        var text = el.text;
+        var image = el.image;
+        var dialog = el.dialog;
+        var body = el.body;
+        var save = el.save;
+        var status = el.status;
+        var closeBtn = el.closeBtn;
         var path = '';
         var cwd = '';
         var originalContent = '';
@@ -27,11 +90,21 @@
         var pendingInput = null;
         var lastEdit = null;
 
+        function detachModal() {
+            if (modal.parentNode && modal.parentNode !== document.body) {
+                modal.parentNode.removeChild(modal);
+            }
+            modal.classList.remove('in-pane');
+            document.body.appendChild(modal);
+        }
+
         function closePreview() {
             if (image.src.indexOf('blob:') === 0) URL.revokeObjectURL(image.src);
             image.removeAttribute('src');
             save.classList.remove('blink');
             modal.classList.remove('open');
+            detachModal();
+            if (options.onClose) options.onClose();
         }
 
         function languageFor(name) {
@@ -179,7 +252,7 @@
             var lines = content.split('\n');
             var lang = content && window.hljs ? languageFor(path) : null;
             detectIndent(content);
-            text.className = lang && hljs.getLanguage(lang) ? 'hljs' : '';
+            text.className = 'preview-text' + (lang && hljs.getLanguage(lang) ? ' hljs' : '');
             text.replaceChildren();
             text.style.setProperty('--preview-line-number-width', String(lines.length).length + 'ch');
             for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
@@ -487,7 +560,7 @@
             render(content, selection);
             normalizing = false;
         });
-        document.getElementById('preview-close').addEventListener('click', closePreview);
+        closeBtn.addEventListener('click', closePreview);
         save.addEventListener('click', saveContent);
         modal.addEventListener('click', function (event) {
             if (event.target === modal) {
@@ -495,14 +568,12 @@
                 else closePreview();
             }
         });
-        document.addEventListener('keydown', function (event) {
-            if (event.key === 'Escape' && modal.classList.contains('open')) {
-                if (dirty) blinkSave();
-                else closePreview();
-            }
-        });
-
         this.open = function (name, data, currentCwd) {
+            // Steal focus from the terminal so keystrokes don't reach the shell
+            // while the preview is open.
+            if (document.activeElement && document.activeElement.blur) {
+                try { document.activeElement.blur(); } catch (e) { }
+            }
             if (image.src.indexOf('blob:') === 0) URL.revokeObjectURL(image.src);
             image.removeAttribute('src');
             title.textContent = name;
@@ -515,13 +586,13 @@
             if (data && data.type === 'image') {
                 path = '';
                 cwd = '';
-                dialog.className = 'image-preview';
+                dialog.className = 'preview-dialog image-preview';
                 image.src = data.url;
                 image.style.display = 'block';
             } else {
                 path = name;
                 cwd = currentCwd || '';
-                dialog.className = 'text-preview';
+                dialog.className = 'preview-dialog text-preview';
                 originalContent = data && data.content || '';
                 dirty = false;
                 updateTitle();
@@ -540,8 +611,22 @@
                     save.classList.add('sudo');
                 }
             }
+            // Fill the active terminal pane when available, else fall back to full-screen.
+            var host = options && options.getContainer ? options.getContainer() : null;
+            if (host && host.nodeType === 1) {
+                modal.classList.add('in-pane');
+                if (modal.parentNode !== host) host.appendChild(modal);
+            } else {
+                detachModal();
+            }
             modal.classList.add('open');
         };
+
+        this.close = closePreview;
+        this.isOpen = function () {
+            return modal.classList.contains('open');
+        };
+        this.modal = modal;
     }
 
     window.WebtermdTextEditor = TextEditor;

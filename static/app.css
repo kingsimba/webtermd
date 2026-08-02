@@ -528,7 +528,7 @@ body {
 }
 
 /* --- preview modal --- */
-#preview-modal {
+.preview-modal {
     display: none;
     position: fixed;
     top: 0;
@@ -541,11 +541,45 @@ body {
     justify-content: center;
 }
 
-#preview-modal.open {
+.preview-modal.open {
     display: flex;
 }
 
-#preview-dialog {
+/* When docked inside a terminal pane, fill only that pane. */
+.preview-modal.in-pane {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    box-sizing: border-box;
+    z-index: 50;
+}
+
+.preview-modal.in-pane .preview-dialog {
+    border: none;
+    border-radius: 0;
+}
+
+.preview-modal.in-pane .preview-dialog.text-preview {
+    width: 100%;
+    max-width: none;
+    height: 100%;
+    max-height: none;
+    box-sizing: border-box;
+}
+
+.preview-modal.in-pane .preview-dialog.image-preview {
+    max-width: calc(100% - 30px);
+    max-height: calc(100% - 30px);
+}
+
+.preview-modal.in-pane .preview-img {
+    max-width: calc(100% - 30px);
+    max-height: calc(100% - 62px);
+}
+
+.preview-dialog {
     background: #1e1e1e;
     border: 1px solid #555;
     border-radius: 6px;
@@ -554,19 +588,19 @@ body {
     overflow: hidden;
 }
 
-#preview-dialog.text-preview {
+.preview-dialog.text-preview {
     width: 1000px;
     max-width: 80vw;
     max-height: 80vh;
 }
 
-#preview-dialog.image-preview {
+.preview-dialog.image-preview {
     width: fit-content;
     max-width: 90vw;
     max-height: 90vh;
 }
 
-#preview-header {
+.preview-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -575,7 +609,7 @@ body {
     flex-shrink: 0;
 }
 
-#preview-title {
+.preview-title {
     margin-right: auto;
     color: #8bc34a;
     font-family: var(--mono-font);
@@ -590,18 +624,18 @@ body {
     50% { background-color: rgba(255, 82, 82, 1.0); }
 }
 
-#preview-save.blink {
+.preview-save.blink {
     animation: blink-save 0.5s ease-in-out 3;
 }
 
-#preview-actions {
+.preview-actions {
     display: flex;
     align-items: center;
     gap: 8px;
     flex-shrink: 0;
 }
 
-#preview-save {
+.preview-save {
     border: 1px solid #555;
     border-radius: 3px;
     padding: 3px 9px;
@@ -612,20 +646,20 @@ body {
     font-size: 12px;
 }
 
-#preview-save:hover {
+.preview-save:hover {
     background: #444;
 }
 
-#preview-save.sudo {
+.preview-save.sudo {
     border-color: #ff9800;
     color: #ff9800;
 }
 
-#preview-save.sudo:hover {
+.preview-save.sudo:hover {
     background: #3e2723;
 }
 
-#preview-close {
+.preview-close {
     background: none;
     border: 1px solid #555;
     color: #ccc;
@@ -637,18 +671,18 @@ body {
     flex-shrink: 0;
 }
 
-#preview-close:hover {
+.preview-close:hover {
     background: #444;
 }
 
-#preview-body {
+.preview-body {
     flex: 1;
     overflow: auto;
     padding: 12px 14px;
     min-height: 0;
 }
 
-#preview-status {
+.preview-status {
     border-top: 1px solid #3c3c3c;
     color: #CCC;
     display: none;
@@ -659,11 +693,11 @@ body {
     padding: 5px 14px;
 }
 
-#preview-text-wrap {
+.preview-text-wrap {
     display: grid;
 }
 
-#preview-body pre {
+.preview-body pre {
     margin: 0;
     color: #d4d4d4;
     font-family: var(--mono-font);
@@ -674,18 +708,18 @@ body {
     tab-size: 4;
 }
 
-#preview-text {
+.preview-text {
     counter-reset: preview-line;
     --preview-line-number-width: 1ch;
 }
 
-#preview-text .preview-line {
+.preview-text .preview-line {
     display: grid;
     grid-template-columns: calc(var(--preview-line-number-width) + 25px) minmax(0, 1fr);
     counter-increment: preview-line;
 }
 
-#preview-text .preview-line::before {
+.preview-text .preview-line::before {
     content: counter(preview-line);
     padding-right: 12px;
     margin-right: 12px;
@@ -695,25 +729,25 @@ body {
     user-select: none;
 }
 
-#preview-text .preview-line code {
+.preview-text .preview-line code {
     min-width: 0;
     min-height: 1.5em;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
 }
 
-#preview-text.hljs {
+.preview-text.hljs {
     background: transparent;
     padding: 0;
     overflow-x: visible;
 }
 
-#preview-text[contenteditable="true"] {
+.preview-text[contenteditable="true"] {
     cursor: text;
     outline: none;
 }
 
-#preview-img {
+.preview-img {
     display: none;
     max-width: calc(90vw - 30px);
     max-height: calc(90vh - 62px);
