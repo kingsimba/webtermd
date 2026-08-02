@@ -85,15 +85,24 @@
 
     // Attach a click handler that ignores drag-select (pointer moved > 3 px).
     utils.makeDragSafeClick = function (el, fn) {
-        var downX = 0, downY = 0;
+        var downX = 0, downY = 0, hadDown = false;
         el.addEventListener('pointerdown', function (e) {
             downX = e.clientX;
             downY = e.clientY;
+            hadDown = true;
+        });
+        // Fallback for click simulations that omit pointer events.
+        el.addEventListener('mousedown', function (e) {
+            downX = e.clientX;
+            downY = e.clientY;
+            hadDown = true;
         });
         el.addEventListener('click', function (e) {
-            var dx = e.clientX - downX;
-            var dy = e.clientY - downY;
-            if (dx * dx + dy * dy > 9) return;
+            if (hadDown) {
+                var dx = e.clientX - downX;
+                var dy = e.clientY - downY;
+                if (dx * dx + dy * dy > 9) return;
+            }
             fn(e);
         });
     };

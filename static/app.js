@@ -1045,17 +1045,14 @@
                 item.classList.add('in-upload');
             }
 
-            var name = document.createElement('span');
-            name.className = 'name' + (f.isDir ? ' is-dir' : '') + (f.isSymlink ? ' is-symlink' : '');
             var nameText = document.createElement('span');
             var fp2 = getFocusedPane();
             var clickable = f.isDir && fp2 && fp2.isAtShell && !focusedEditorOpen();
             var previewable = !f.isDir && isPreviewable(f.name) && fp2 && fp2.isAtShell && !focusedEditorOpen();
-            nameText.className = 'name-text' + (clickable ? ' clickable' : '') + (previewable ? ' preview-link' : '');
+            nameText.className = 'name-text' + (f.isDir ? ' is-dir' : '') + (f.isSymlink ? ' is-symlink' : '') + (clickable ? ' clickable' : '') + (previewable ? ' preview-link' : '');
             nameText.textContent = f.name + (f.isDir ? '/' : '');
             nameText.title = f.name;
-            name.appendChild(nameText);
-            item.appendChild(name);
+            item.appendChild(nameText);
 
             if (clickable) {
                 WebtermdUtils.makeDragSafeClick(nameText, function () {
