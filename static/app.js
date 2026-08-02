@@ -18,21 +18,6 @@
         setTimeout(function () { status.style.display = 'none'; }, 5000);
     }
 
-    // Attach a click handler that ignores drag-select (pointer moved > 3 px).
-    function makeDragSafeClick(el, fn) {
-        var downX = 0, downY = 0;
-        el.addEventListener('pointerdown', function (e) {
-            downX = e.clientX;
-            downY = e.clientY;
-        });
-        el.addEventListener('click', function (e) {
-            var dx = e.clientX - downX;
-            var dy = e.clientY - downY;
-            if (dx * dx + dy * dy > 9) return;
-            fn(e);
-        });
-    }
-
     // --- sidebar toggle ---
     var sidebarVisible = true;
     toggleBtn.addEventListener('click', function () {
@@ -51,83 +36,6 @@
         clearUploadsBtn.addEventListener('click', function () {
             clearHistory();
         });
-    }
-
-    // --- clipboard sink (for plain-HTTP contexts) ---
-    var hasClipboardAPI = !!(navigator.clipboard && navigator.clipboard.readText);
-
-    var clipSink = document.createElement('textarea');
-    clipSink.style.position = 'fixed';
-    clipSink.style.top = '0';
-    clipSink.style.left = '-9999px';
-    clipSink.style.width = '1px';
-    clipSink.style.height = '1px';
-    clipSink.style.opacity = '0';
-    clipSink.setAttribute('tabindex', '-1');
-    clipSink.setAttribute('autocomplete', 'off');
-    clipSink.setAttribute('autocorrect', 'off');
-    clipSink.setAttribute('autocapitalize', 'off');
-    clipSink.setAttribute('spellcheck', 'false');
-    document.body.appendChild(clipSink);
-
-    var clipboardTarget = null;
-    clipSink.addEventListener('paste', function (ev) {
-        var data = ev.clipboardData ? ev.clipboardData.getData('text/plain') : '';
-        ev.preventDefault();
-        if (clipboardTarget) {
-            clipboardTarget.focus();
-            if (data) clipboardTarget.paste(data);
-        }
-    });
-
-    function installClipboardShortcuts(term, host) {
-        function handleKeydown(e) {
-            if (!e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
-
-            // Ctrl+C: copy selection, or fall through to SIGINT.
-            if (e.key === 'c' || e.key === 'C') {
-                var selection = term.getSelection();
-                if (selection) {
-                    e.preventDefault();
-                    e.stopImmediatePropagation();
-                    term.clearSelection();
-                    if (hasClipboardAPI) {
-                        navigator.clipboard.writeText(selection).catch(function () { });
-                    } else {
-                        clipSink.value = selection;
-                        clipSink.select();
-                        clipSink.focus();
-                        try { document.execCommand('copy'); } catch (err) { }
-                        setTimeout(function () { term.focus(); }, 0);
-                    }
-                }
-                return;
-            }
-
-            // Ctrl+V: paste from clipboard.
-            if (e.key === 'v' || e.key === 'V') {
-                e.stopImmediatePropagation();
-                if (hasClipboardAPI) {
-                    e.preventDefault();
-                    navigator.clipboard.readText().then(function (text) {
-                        if (text) term.paste(text);
-                    }).catch(function () { });
-                } else {
-                    clipboardTarget = term;
-                    clipSink.value = '';
-                    clipSink.focus();
-                    setTimeout(function () {
-                        if (document.activeElement === clipSink) term.focus();
-                        clipboardTarget = null;
-                    }, 0);
-                }
-            }
-        }
-
-        host.addEventListener('keydown', handleKeydown, true);
-        return function () {
-            host.removeEventListener('keydown', handleKeydown, true);
-        };
     }
 
     // --- global state ---
@@ -316,7 +224,7 @@
         pane.fitAddon = new FitAddon.FitAddon();
         pane.term.loadAddon(pane.fitAddon);
         pane.term.open(pane.terminalEl);
-        installClipboardShortcuts(pane.term, pane.terminalEl);
+        WebtermdUtils.installClipboard(pane.term, pane.terminalEl);
 
         // Fit after a short delay to let the DOM settle.
         setTimeout(function () { fitPane(pane); }, 100);
@@ -1114,7 +1022,7 @@
             ddText.title = '..';
             ddName.appendChild(ddText);
             if (isShell) {
-                makeDragSafeClick(ddText, function () {
+                WebtermdUtils.makeDragSafeClick(ddText, function () {
                     var f = getFocusedPane();
                     if (f && f.ws && f.ws.readyState === WebSocket.OPEN) {
                         f.ws.send('cd ..\n');
@@ -1152,7 +1060,7 @@
             item.appendChild(name);
 
             if (clickable) {
-                makeDragSafeClick(nameText, function () {
+                WebtermdUtils.makeDragSafeClick(nameText, function () {
                     var f2 = getFocusedPane();
                     if (f2 && f2.ws && f2.ws.readyState === WebSocket.OPEN) {
                         f2.ws.send('cd ' + f.name + '\n');
@@ -1163,7 +1071,7 @@
             if (!f.isDir) {
                 var size = document.createElement('span');
                 size.className = 'size';
-                size.textContent = formatSize(f.size);
+                size.textContent = WebtermdUtils.formatSize(f.size);
                 item.appendChild(size);
 
                 // Context menu to delete file
@@ -1178,7 +1086,7 @@
 
                 if (previewable) {
                     nameText.title = 'Preview ' + f.name;
-                    makeDragSafeClick(nameText, function (e) {
+                    WebtermdUtils.makeDragSafeClick(nameText, function (e) {
                         e.stopPropagation();
                         var f3 = getFocusedPane();
                         var auth = getAuth() || { nonce: '', sig: '' };
@@ -1303,7 +1211,7 @@
         if (done) {
             u.el.classList.add('done');
             u.el.classList.remove('error', 'paused');
-            statusEl.textContent = 'Done — ' + formatSize(received);
+            statusEl.textContent = 'Done — ' + WebtermdUtils.formatSize(received);
             u.el.querySelector('.actions').innerHTML = '';
             // Context menu on done items
             u.el.addEventListener('contextmenu', function (e) {
@@ -1326,11 +1234,11 @@
         } else if (u.paused) {
             u.el.classList.add('paused');
             u.el.classList.remove('done', 'error');
-            statusEl.textContent = 'Paused — ' + formatSize(received) + ' / ' + formatSize(total);
+            statusEl.textContent = 'Paused — ' + WebtermdUtils.formatSize(received) + ' / ' + WebtermdUtils.formatSize(total);
             if (pauseBtn) pauseBtn.textContent = '▶ Resume';
         } else {
             u.el.classList.remove('done', 'error', 'paused');
-            statusEl.textContent = formatSize(received) + ' / ' + formatSize(total);
+            statusEl.textContent = WebtermdUtils.formatSize(received) + ' / ' + WebtermdUtils.formatSize(total);
             if (pauseBtn) pauseBtn.textContent = '⏸ Pause';
         }
     }
@@ -1359,12 +1267,6 @@
         if (u.el && u.el.parentNode) u.el.parentNode.removeChild(u.el);
         delete uploads[id];
         showEmptyHint();
-    }
-
-    function formatSize(bytes) {
-        if (bytes < 1024) return bytes + ' B';
-        if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
-        return (bytes / 1048576).toFixed(1) + ' MB';
     }
 
     function getUploadListPaths() {
@@ -1437,9 +1339,9 @@
         var el = document.createElement('div');
         el.className = 'item history';
         el.innerHTML =
-            '<span class="name">' + escapeHtml(entry.filename) + '</span>' +
+            '<span class="name">' + WebtermdUtils.escapeHtml(entry.filename) + '</span>' +
             '<div class="bar"><div class="bar-fill"></div></div>' +
-            '<span class="status-text">' + formatSize(entry.size) + ' — ' + entry.time + '</span>' +
+            '<span class="status-text">' + WebtermdUtils.formatSize(entry.size) + ' — ' + entry.time + '</span>' +
             '<div class="actions"></div>';
         uploadsList.appendChild(el);
 
@@ -1450,12 +1352,6 @@
             e.preventDefault();
             showUploadContextMenu(e.clientX, e.clientY, entry.id, entry.filename, entry.path);
         });
-    }
-
-    function escapeHtml(str) {
-        var div = document.createElement('div');
-        div.appendChild(document.createTextNode(str));
-        return div.innerHTML;
     }
 
     // --- upload context menu ---
@@ -1615,7 +1511,7 @@
         sudoFitAddon = new FitAddon.FitAddon();
         sudoTerm.loadAddon(sudoFitAddon);
         sudoTerm.open(sudoTerminalEl);
-        sudoClipboardCleanup = installClipboardShortcuts(sudoTerm, sudoTerminalEl);
+        sudoClipboardCleanup = WebtermdUtils.installClipboard(sudoTerm, sudoTerminalEl);
         setTimeout(function () { try { sudoFitAddon.fit(); } catch (e) { } }, 100);
 
         // Connect WebSocket.
