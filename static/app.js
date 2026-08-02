@@ -310,8 +310,10 @@
                         break;
 
                     case 'cwd':
+                        var cwdChanged = pane.cwd !== msg.path;
                         pane.cwd = msg.path;
                         if (pane.id === focusedPaneId) {
+                            if (cwdChanged) fileFilter.value = '';
                             setCWD(msg.path);
                         }
                         if (pane.pendingCwdRestore && pane.pendingCwdRestore !== '-' &&
