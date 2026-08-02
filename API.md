@@ -151,22 +151,6 @@ Atomically replace the file named by `filename` in the directory given by `path`
 | 413    | File or replacement content exceeds 1 MiB             |
 | 415    | File contains a NUL byte and is treated as binary     |
 
-#### Signing from the command line
-
-The server uses RSA PKCS1v1.5 over SHA-256. The frontend displays a one-liner you can copy and run to sign the nonce:
-
-```bash
-printf '%s' '<nonce>' | openssl dgst -sha256 -sign ~/.ssh/id_rsa | base64 -w0
-```
-
-If your key has a passphrase, OpenSSL will prompt for it. Paste the output into the signature field in the frontend.
-
-**Key format requirement**: Your private key must be in PEM format (begins with `-----BEGIN RSA PRIVATE KEY-----`). OpenSSH-native format keys (begins with `-----BEGIN OPENSSH PRIVATE KEY-----`) need a one-time conversion:
-
-```bash
-ssh-keygen -p -m PEM -f ~/.ssh/id_rsa
-```
-
 ---
 
 ### POST /api/upload/:id
