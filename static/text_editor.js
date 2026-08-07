@@ -789,7 +789,7 @@
             modal.classList.add('open');
         };
 
-        this.close = closePreview;
+        this.close = handleClose;
         this.isOpen = function () {
             return modal.classList.contains('open');
         };

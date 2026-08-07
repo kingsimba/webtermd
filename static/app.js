@@ -882,6 +882,14 @@
             }
         }
         if (e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey && (e.key === 'q' || e.key === 'Q')) {
+            if (focusedEditorOpen()) {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                var fp = getFocusedPane();
+                var ed = fp && paneEditors[fp.id];
+                if (ed) ed.close();
+                return;
+            }
             if (getAllPaneIds().length > 1) {
                 e.preventDefault();
                 e.stopImmediatePropagation();
@@ -1202,15 +1210,15 @@
 
     // --- preview ---
     var nonPreviewExts = {
-        'o':   true, 'so':  true, 'a':   true, 'ko': true,
+        'o': true, 'so': true, 'a': true, 'ko': true,
         'exe': true, 'dll': true, 'bin': true,
-        'zip': true, 'tar': true, 'gz':  true, 'bz2': true, 'xz':  true, '7z': true, 'rar': true,
-        'pdf': true, 'doc': true, 'docx':true, 'xls': true, 'xlsx':true, 'ppt': true, 'pptx':true,
-        'mp3': true, 'mp4': true, 'avi': true, 'mov': true, 'mkv': true, 'wav': true, 'flac':true,
-        'ttf': true, 'otf': true, 'woff':true, 'woff2':true,
-        'pyc': true, 'pyo': true, 'class':true,
+        'zip': true, 'tar': true, 'gz': true, 'bz2': true, 'xz': true, '7z': true, 'rar': true,
+        'pdf': true, 'doc': true, 'docx': true, 'xls': true, 'xlsx': true, 'ppt': true, 'pptx': true,
+        'mp3': true, 'mp4': true, 'avi': true, 'mov': true, 'mkv': true, 'wav': true, 'flac': true,
+        'ttf': true, 'otf': true, 'woff': true, 'woff2': true,
+        'pyc': true, 'pyo': true, 'class': true,
         'iso': true, 'img': true, 'dmg': true,
-        'ps':  true, 'eps': true,
+        'ps': true, 'eps': true,
     };
     function isPreviewable(name) {
         var dot = name.lastIndexOf('.');
@@ -1247,6 +1255,7 @@
             onClose: function () {
                 renderFiltered();
                 if (pane && pane.cwd) setCWD(pane.cwd);
+                if (pane && pane.term) { try { pane.term.focus(); } catch (e) { } }
             }
         });
         paneEditors[pane.id] = ed;
