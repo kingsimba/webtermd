@@ -237,13 +237,23 @@
                 text.focus();
             }
             var selection = window.getSelection();
-            var range = document.createRange();
             var startPoint = pointAtOffset(content, start);
             var endPoint = pointAtOffset(content, end);
-            range.setStart(startPoint.node, startPoint.offset);
-            range.setEnd(endPoint.node, endPoint.offset);
             selection.removeAllRanges();
-            selection.addRange(range);
+            selection.collapse(startPoint.node, startPoint.offset);
+            if (start !== end) selection.extend(endPoint.node, endPoint.offset);
+        }
+
+        function scrollLineIntoView(lineIndex) {
+            var line = text.querySelectorAll('.preview-line')[lineIndex];
+            if (!line) return;
+            var lineBounds = line.getBoundingClientRect();
+            var bodyBounds = body.getBoundingClientRect();
+            if (lineBounds.top < bodyBounds.top) {
+                body.scrollTop += lineBounds.top - bodyBounds.top;
+            } else if (lineBounds.bottom > bodyBounds.bottom) {
+                body.scrollTop += lineBounds.bottom - bodyBounds.bottom;
+            }
         }
 
         function render(content, selection) {
@@ -447,6 +457,99 @@
             return true;
         }
 
+        function moveCaretVertically(direction, shiftKey) {
+            var content = editorContent();
+            var selection = selectionOffsets(content);
+            var lines = content.split('\n');
+            var currentLine = lineIndexAt(content, selection.end);
+            var lineStartOffset = lineStart(content, selection.end);
+            var column = selection.end - lineStartOffset;
+            var targetLine = currentLine + direction;
+            if (targetLine < 0 || targetLine >= lines.length) return false;
+            var targetColumn = Math.min(column, lines[targetLine].length);
+            var targetOffset = 0;
+            for (var i = 0; i < targetLine; i++) targetOffset += lines[i].length + 1;
+            targetOffset += targetColumn;
+            if (shiftKey) {
+                restoreSelection(content, selection.start, targetOffset);
+            } else {
+                restoreSelection(content, targetOffset, targetOffset);
+            }
+            scrollLineIntoView(targetLine);
+            return true;
+        }
+
+        function firstFullyVisibleLine() {
+            var lines = text.querySelectorAll('.preview-line');
+            var bodyBounds = body.getBoundingClientRect();
+            for (var index = 0; index < lines.length; index++) {
+                var lineBounds = lines[index].getBoundingClientRect();
+                if (lineBounds.top >= bodyBounds.top && lineBounds.bottom <= bodyBounds.bottom) return index;
+            }
+            return 0;
+        }
+
+        function lastFullyVisibleLine() {
+            var lines = text.querySelectorAll('.preview-line');
+            var bodyBounds = body.getBoundingClientRect();
+            for (var index = lines.length - 1; index >= 0; index--) {
+                var lineBounds = lines[index].getBoundingClientRect();
+                if (lineBounds.top >= bodyBounds.top && lineBounds.bottom <= bodyBounds.bottom) return index;
+            }
+            return lines.length - 1;
+        }
+
+        function moveCaretToLine(lineIndex, shiftKey) {
+            var content = editorContent();
+            var selection = selectionOffsets(content);
+            var lines = content.split('\n');
+            var column = selection.end - lineStart(content, selection.end);
+            var targetOffset = 0;
+            for (var index = 0; index < lineIndex; index++) targetOffset += lines[index].length + 1;
+            targetOffset += Math.min(column, lines[lineIndex].length);
+            restoreSelection(content, shiftKey ? selection.start : targetOffset, targetOffset);
+        }
+
+        function pageUp(shiftKey) {
+            var content = editorContent();
+            var selection = selectionOffsets(content);
+            var visibleLine = firstFullyVisibleLine();
+            if (lineIndexAt(content, selection.end) === visibleLine && body.scrollTop > 0) {
+                body.scrollTop = Math.max(0, body.scrollTop - body.clientHeight);
+                visibleLine = firstFullyVisibleLine();
+            }
+            moveCaretToLine(visibleLine, shiftKey);
+        }
+
+        function pageDown(shiftKey) {
+            var content = editorContent();
+            var selection = selectionOffsets(content);
+            var visibleLine = lastFullyVisibleLine();
+            var maxScrollTop = body.scrollHeight - body.clientHeight;
+            if (lineIndexAt(content, selection.end) === visibleLine && body.scrollTop < maxScrollTop) {
+                body.scrollTop = Math.min(maxScrollTop, body.scrollTop + body.clientHeight);
+                visibleLine = lastFullyVisibleLine();
+            }
+            moveCaretToLine(visibleLine, shiftKey);
+        }
+
+        function moveCaretHorizontally(direction, shiftKey) {
+            var content = editorContent();
+            var selection = selectionOffsets(content);
+            var targetOffset;
+            if (shiftKey) {
+                targetOffset = Math.max(0, Math.min(content.length, selection.end + direction));
+                restoreSelection(content, selection.start, targetOffset);
+                return;
+            }
+            if (selection.start !== selection.end) {
+                targetOffset = direction < 0 ? Math.min(selection.start, selection.end) : Math.max(selection.start, selection.end);
+            } else {
+                targetOffset = Math.max(0, Math.min(content.length, selection.end + direction));
+            }
+            restoreSelection(content, targetOffset, targetOffset);
+        }
+
         function handleEditorKeydown(event) {
             if (!text.isContentEditable || (!text.contains(event.target) && document.activeElement !== text)) return;
             var key = event.key.toLowerCase();
@@ -465,7 +568,31 @@
                 insertNewline();
             } else if (event.key === 'Backspace' && outdentBeforeCursor()) {
                 event.preventDefault();
-            } else if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].indexOf(event.key) !== -1) {
+            } else if (event.key === 'ArrowUp') {
+                event.preventDefault();
+                breakEditGroup();
+                moveCaretVertically(-1, event.shiftKey);
+            } else if (event.key === 'ArrowDown') {
+                event.preventDefault();
+                breakEditGroup();
+                moveCaretVertically(1, event.shiftKey);
+            } else if (event.key === 'ArrowLeft' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+                event.preventDefault();
+                breakEditGroup();
+                moveCaretHorizontally(-1, event.shiftKey);
+            } else if (event.key === 'ArrowRight' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+                event.preventDefault();
+                breakEditGroup();
+                moveCaretHorizontally(1, event.shiftKey);
+            } else if (event.key === 'PageUp') {
+                event.preventDefault();
+                breakEditGroup();
+                pageUp(event.shiftKey);
+            } else if (event.key === 'PageDown') {
+                event.preventDefault();
+                breakEditGroup();
+                pageDown(event.shiftKey);
+            } else if (['Home', 'End'].indexOf(event.key) !== -1) {
                 breakEditGroup();
             }
         }
