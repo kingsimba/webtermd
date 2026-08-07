@@ -14,16 +14,20 @@
     width: 6px;
     height: 6px;
 }
+
 ::-webkit-scrollbar-track {
     background: transparent;
 }
+
 ::-webkit-scrollbar-thumb {
     background: #555;
     border-radius: 3px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
     background: #777;
 }
+
 ::-webkit-scrollbar-corner {
     background: transparent;
 }
@@ -605,6 +609,7 @@ body {
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    position: relative;
 }
 
 .preview-dialog.text-preview {
@@ -639,8 +644,15 @@ body {
 }
 
 @keyframes blink-save {
-    0%, 100% { background-color: transparent; }
-    50% { background-color: rgba(255, 82, 82, 1.0); }
+
+    0%,
+    100% {
+        background-color: transparent;
+    }
+
+    50% {
+        background-color: rgba(255, 82, 82, 1.0);
+    }
 }
 
 .preview-save.blink {
@@ -710,6 +722,70 @@ body {
     font-size: 12px;
     font-weight: bold;
     padding: 5px 14px;
+}
+
+.preview-confirm-overlay {
+    display: none;
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: 10;
+    align-items: center;
+    justify-content: center;
+}
+
+.preview-confirm-overlay.open {
+    display: flex;
+}
+
+.preview-confirm-box {
+    background: #2d2d2d;
+    border: 1px solid #555;
+    border-radius: 6px;
+    padding: 20px 28px;
+    text-align: center;
+}
+
+.preview-confirm-msg {
+    color: #d4d4d4;
+    font-family: var(--system-font);
+    font-size: 14px;
+    margin: 0 0 16px 0;
+}
+
+.preview-confirm-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+}
+
+.preview-confirm-actions button {
+    font-family: var(--system-font);
+    font-size: 13px;
+    padding: 6px 20px;
+    border: 1px solid #555;
+    border-radius: 4px;
+    cursor: pointer;
+    background: #3c3c3c;
+    color: #d4d4d4;
+}
+
+.preview-confirm-actions button:hover {
+    background: #505050;
+}
+
+.preview-confirm-discard {
+    background: #a33 !important;
+    border-color: #a33 !important;
+    color: #fff !important;
+}
+
+.preview-confirm-discard:hover {
+    background: #c44 !important;
+}
+
+.preview-confirm-cancel {
+    color: #d4d4d4;
 }
 
 .preview-text-wrap {

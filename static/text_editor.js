@@ -49,15 +49,42 @@
         var status = document.createElement('div');
         status.className = 'preview-status';
 
+        var confirmOverlay = document.createElement('div');
+        confirmOverlay.className = 'preview-confirm-overlay';
+        var confirmBox = document.createElement('div');
+        confirmBox.className = 'preview-confirm-box';
+        var confirmMsg = document.createElement('p');
+        confirmMsg.className = 'preview-confirm-msg';
+        confirmMsg.textContent = 'You have unsaved changes.';
+        var confirmActions = document.createElement('div');
+        confirmActions.className = 'preview-confirm-actions';
+        var confirmDiscard = document.createElement('button');
+        confirmDiscard.type = 'button';
+        confirmDiscard.className = 'preview-confirm-discard';
+        confirmDiscard.textContent = 'Discard';
+        var confirmCancel = document.createElement('button');
+        confirmCancel.type = 'button';
+        confirmCancel.className = 'preview-confirm-cancel';
+        confirmCancel.textContent = 'Cancel';
+        confirmActions.appendChild(confirmDiscard);
+        confirmActions.appendChild(confirmCancel);
+        confirmBox.appendChild(confirmMsg);
+        confirmBox.appendChild(confirmActions);
+        confirmOverlay.appendChild(confirmBox);
+
         dialog.appendChild(header);
         dialog.appendChild(body);
         dialog.appendChild(status);
+        dialog.appendChild(confirmOverlay);
         modal.appendChild(dialog);
 
         return {
             modal: modal, dialog: dialog, title: title, save: save,
             closeBtn: closeBtn, body: body, textWrap: textWrap,
-            text: text, image: image, status: status
+            text: text, image: image, status: status,
+            confirmOverlay: confirmOverlay,
+            confirmDiscard: confirmDiscard,
+            confirmCancel: confirmCancel
         };
     }
 
@@ -73,6 +100,9 @@
         var save = el.save;
         var status = el.status;
         var closeBtn = el.closeBtn;
+        var confirmOverlay = el.confirmOverlay;
+        var confirmDiscard = el.confirmDiscard;
+        var confirmCancel = el.confirmCancel;
         var path = '';
         var cwd = '';
         var originalContent = '';
@@ -644,12 +674,6 @@
             }
         }
 
-        function blinkSave() {
-            save.classList.remove('blink');
-            void save.offsetWidth;
-            save.classList.add('blink');
-        }
-
         document.addEventListener('keydown', handleEditorKeydown, true);
         text.addEventListener('pointerdown', breakEditGroup);
         text.addEventListener('paste', function (event) {
@@ -687,14 +711,29 @@
             render(content, selection);
             normalizing = false;
         });
-        closeBtn.addEventListener('click', closePreview);
+        function showCloseConfirm() {
+            confirmOverlay.classList.add('open');
+        }
+
+        function hideCloseConfirm() {
+            confirmOverlay.classList.remove('open');
+        }
+
+        function handleClose() {
+            if (dirty) showCloseConfirm();
+            else closePreview();
+        }
+
+        closeBtn.addEventListener('click', handleClose);
         save.addEventListener('click', saveContent);
         modal.addEventListener('click', function (event) {
-            if (event.target === modal) {
-                if (dirty) blinkSave();
-                else closePreview();
-            }
+            if (event.target === modal) handleClose();
         });
+        confirmDiscard.addEventListener('click', function () {
+            hideCloseConfirm();
+            closePreview();
+        });
+        confirmCancel.addEventListener('click', hideCloseConfirm);
         this.open = function (name, data, currentCwd) {
             // Steal focus from the terminal so keystrokes don't reach the shell
             // while the preview is open.
@@ -705,6 +744,7 @@
             image.removeAttribute('src');
             title.textContent = name;
             save.classList.remove('blink');
+            hideCloseConfirm();
             textWrap.style.display = 'none';
             image.style.display = 'none';
             text.contentEditable = 'false';
