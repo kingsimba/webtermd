@@ -38,6 +38,7 @@
     var uploadManager = null;
     var basePath = location.pathname.replace(/\/[^/]*$/, '');
     var sigNonce = '';
+    var layoutBooted = false;
 
     function getPathEntry() {
         try {
@@ -196,14 +197,17 @@
 
         pane.fitAddon = new FitAddon.FitAddon();
         pane.term.loadAddon(pane.fitAddon);
+
+        // Start connecting before xterm's DOM setup, which may be slow on a
+        // constrained browser or when the pane is initially hidden.
+        connectPaneWS(pane);
+
         pane.term.open(pane.terminalEl);
         WebtermdUtils.installClipboard(pane.term, pane.terminalEl);
 
         // Fit after a short delay to let the DOM settle.
         setTimeout(function () { fitPane(pane); }, 100);
 
-        // Connect terminal WebSocket.
-        connectPaneWS(pane);
     }
 
     function connectPaneWS(pane) {
@@ -213,6 +217,13 @@
 
         if (!nonce && stored && stored.nonce) nonce = stored.nonce;
         var sig = stored ? stored.sig : '';
+
+        // An unsigned WebSocket handshake can be delayed by a reverse proxy.
+        // The challenge response is enough to display the authentication UI.
+        if (!sig) {
+            showSigDialog();
+            return;
+        }
 
         if (!nonce) {
             // Need a fresh challenge first.
@@ -1536,6 +1547,10 @@
         document.getElementById('sig-overlay').classList.remove('open');
         // Reconnect focused pane with new signature.
         setAuth(sigNonce, sig);
+        if (!layoutBooted) {
+            startAll();
+            return;
+        }
         var fp = getFocusedPane();
         if (fp) {
             if (fp.ws) try { fp.ws.close(); } catch (e) { }
@@ -1560,9 +1575,13 @@
     // --- startup ---
     function startAll() {
         var savedAuth = getAuth();
+        var nonce;
+        var sig;
 
         if (savedAuth && savedAuth.nonce && savedAuth.sig) {
             sigNonce = savedAuth.nonce;
+            nonce = savedAuth.nonce;
+            sig = savedAuth.sig;
         } else {
             // Fetch a fresh challenge.
             fetch(basePath + '/api/challenge')
@@ -1572,7 +1591,7 @@
                 })
                 .then(function (data) {
                     sigNonce = data.nonce;
-                    bootLayout();
+                    showSigDialog();
                 })
                 .catch(function (err) {
                     showError('Connection error: ' + err.message);
@@ -1580,10 +1599,13 @@
                 });
             return;
         }
+        connectCmd(nonce, sig);
         bootLayout();
     }
 
     function bootLayout() {
+        if (layoutBooted) return;
+        layoutBooted = true;
         layoutTree = createDefaultLayout();
 
         // Ensure all pane IDs in the tree have runtime objects.
@@ -1634,13 +1656,6 @@
             });
         }
 
-        // Connect command channel.
-        var stored = getAuth();
-        if (stored && stored.nonce && stored.sig) {
-            connectCmd(stored.nonce, stored.sig);
-        } else {
-            connectCmd(sigNonce, '');
-        }
     }
 
     startAll();

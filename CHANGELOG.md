@@ -1,5 +1,6 @@
 # Changelog
 
+- 2026-08-07 webtermd: Fix delayed authentication dialog on initial connection
 - 2026-08-07 webtermd: Write file edits in-place to preserve owner and inode
 - 2026-08-02 webtermd: Improve scrollbar appearance with dark thin styling
 - 2026-08-02 webtermd: Raise default file preview limit to 256 KiB and make it configurable with `-preview-limit`
