@@ -117,6 +117,7 @@
 
     function getAllPaneIds(node) {
         if (!node) node = layoutTree;
+        if (!node) return [];
         if (node.type === 'pane') return [node.id];
         var ids = [];
         for (var i = 0; i < node.children.length; i++) {

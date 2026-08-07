@@ -368,9 +368,9 @@ func TestFileAPIPreviewRejectsUnsafeRequests(t *testing.T) {
 	unauthenticated.Body.Close()
 
 	for _, testCase := range []struct {
-		name string
+		name     string
 		filename string
-		want int
+		want     int
 	}{
 		{name: "invalid filename", filename: "..%5Coutside", want: http.StatusBadRequest},
 		{name: "binary", filename: "binary.txt", want: http.StatusUnsupportedMediaType},
@@ -411,9 +411,9 @@ func TestFileAPIRejectsUnsafeRequests(t *testing.T) {
 	unauthenticatedResponse.Body.Close()
 
 	cases := []struct {
-		name string
+		name     string
 		filename string
-		want int
+		want     int
 	}{
 		{name: "invalid filename", filename: "..%5Coutside", want: http.StatusBadRequest},
 		{name: "binary", filename: "binary", want: http.StatusUnsupportedMediaType},

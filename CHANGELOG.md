@@ -1,5 +1,6 @@
 # Changelog
 
+- 2026-08-07 webtermd: Fix resize errors before authentication
 - 2026-08-07 webtermd: Fix delayed authentication dialog on initial connection
 - 2026-08-07 webtermd: Write file edits in-place to preserve owner and inode
 - 2026-08-02 webtermd: Improve scrollbar appearance with dark thin styling
