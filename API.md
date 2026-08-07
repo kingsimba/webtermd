@@ -99,7 +99,7 @@ Retrieve metadata for a file. Returns whether the target directory is writable (
 }
 ```
 
-`writable` is `true` only when the server can create and remove a temporary replacement file in the target directory. A `false` value means the file is read-only on disk.
+`writable` is `true` only when the server can open the file for writing. A `false` value means the file is read-only on disk or the server lacks write permission.
 
 This endpoint is not cached — writability can change independently of file content.
 
@@ -113,7 +113,7 @@ This endpoint is not cached — writability can change independently of file con
 
 ### PUT /files/:filename
 
-Atomically replace the file named by `filename` in the directory given by `path`. The server rejects invalid filenames, directories, binary files, and files larger than 1 MiB. It writes a temporary file in the target directory, preserves the target's permission bits, syncs it, and renames it over the original file.
+Replace the file named by `filename` in the directory given by `path`. The server rejects invalid filenames, directories, binary files, and files larger than 1 MiB. Content is written in-place (truncate and rewrite).
 
 **Authentication headers**: `X-Webtermd-Nonce` and `X-Webtermd-Signature`, as described for `GET /files/:filename`.
 

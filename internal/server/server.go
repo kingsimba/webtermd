@@ -346,29 +346,20 @@ func (s *Server) handleFileReplace(w http.ResponseWriter, r *http.Request, filen
 		return
 	}
 
-	temp, err := os.CreateTemp(filepath.Dir(resolved), ".webtermd-edit-*")
+	f, err := os.OpenFile(resolved, os.O_WRONLY|os.O_TRUNC, 0)
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "create temporary file: "+err.Error())
+		writeJSONError(w, http.StatusInternalServerError, "open file for writing: "+err.Error())
 		return
 	}
-	tempPath := temp.Name()
-	defer os.Remove(tempPath)
-	err = temp.Chmod(info.Mode().Perm())
+	_, err = f.WriteString(request.Content)
 	if err == nil {
-		_, err = temp.WriteString(request.Content)
+		err = f.Sync()
 	}
-	if err == nil {
-		err = temp.Sync()
-	}
-	if closeErr := temp.Close(); err == nil {
+	if closeErr := f.Close(); err == nil {
 		err = closeErr
 	}
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "write file: "+err.Error())
-		return
-	}
-	if err := os.Rename(tempPath, resolved); err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "replace file: "+err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"path": filename})
