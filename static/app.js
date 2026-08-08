@@ -222,32 +222,8 @@
         if (!nonce && stored && stored.nonce) nonce = stored.nonce;
         var sig = stored ? stored.sig : '';
 
-        // An unsigned WebSocket handshake can be delayed by a reverse proxy.
-        // The challenge response is enough to display the authentication UI.
-        if (!sig) {
-            showSigDialog();
-            return;
-        }
-
-        if (!nonce) {
-            // Need a fresh challenge first.
-            fetch(basePath + '/api/challenge')
-                .then(function (r) {
-                    if (!r.ok) throw new Error('challenge failed: ' + r.status);
-                    return r.json();
-                })
-                .then(function (data) {
-                    if (pane.destroyed || panes[pane.id] !== pane) return;
-                    sigNonce = data.nonce;
-                    openPaneWS(pane, data.nonce, sig);
-                })
-                .catch(function () {
-                    if (!pane.destroyed && panes[pane.id] === pane) {
-                        setTimeout(function () { connectPaneWS(pane); }, 3000);
-                    }
-                });
-            return;
-        }
+        // Missing or invalid credentials fail the handshake, and the ws
+        // onclose handler surfaces the sign-in dialog naturally.
         openPaneWS(pane, nonce, sig);
     }
 
@@ -295,15 +271,9 @@
         pane.ws.onclose = function () {
             if (pane.destroyed || panes[pane.id] !== pane) return;
             if (!pane.everConnected && !pane.sigOpenFired && pane.id === focusedPaneId) {
-                // Auth failed — show dialog.
-                if (!sig) {
-                    showSigDialog();
-                    return;
-                }
+                // Auth failed — clear stale credentials and ask for a new signature.
                 clearAuth();
-                document.getElementById('sig-error').style.display = 'block';
-                document.getElementById('sig-error').textContent = 'Authentication failed. Check your signature or refresh the nonce.';
-                document.getElementById('sig-overlay').classList.add('open');
+                requireSignature();
                 return;
             }
             pane.term.write('\r\n\x1b[31m[disconnected]\x1b[0m\r\n');
@@ -1506,6 +1476,32 @@
         if (e.target === helpOverlay) helpOverlay.classList.remove('open');
     });
 
+    document.getElementById('help-signout-btn').addEventListener('click', function () {
+        clearAuth();
+        // Tear down all terminals and websocket connections.
+        var ids = getAllPaneIds();
+        for (var i = 0; i < ids.length; i++) {
+            destroyPane(ids[i]);
+        }
+        if (wsCmd) {
+            try { wsCmd.close(); } catch (e) { }
+            wsCmd = null;
+        }
+        if (sudoWS) {
+            try { sudoWS.close(); } catch (e) { }
+            sudoWS = null;
+        }
+        sudoModal.classList.remove('open');
+        // Reset layout so re-authentication starts fresh.
+        layoutTree = null;
+        focusedPaneId = null;
+        panes = {};
+        layoutBooted = false;
+        terminalContainer.innerHTML = '';
+        helpOverlay.classList.remove('open');
+        requireSignature();
+    });
+
     // --- command channel WebSocket ---
     function connectCmd(nonce, sig) {
         var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -1550,6 +1546,23 @@
         document.getElementById('sig-input').focus();
     }
 
+    // Fetch a fresh challenge, then show the sign-in dialog with a valid command.
+    function requireSignature() {
+        fetch(basePath + '/api/challenge')
+            .then(function (r) {
+                if (!r.ok) throw new Error('challenge failed: ' + r.status);
+                return r.json();
+            })
+            .then(function (data) {
+                sigNonce = data.nonce;
+                showSigDialog();
+            })
+            .catch(function () {
+                showError('Connection error: could not reach the server.');
+                setTimeout(requireSignature, 3000);
+            });
+    }
+
     document.getElementById('sig-connect').addEventListener('click', function () {
         var sig = document.getElementById('sig-input').value.trim();
         if (!sig) return;
@@ -1592,20 +1605,7 @@
             nonce = savedAuth.nonce;
             sig = savedAuth.sig;
         } else {
-            // Fetch a fresh challenge.
-            fetch(basePath + '/api/challenge')
-                .then(function (r) {
-                    if (!r.ok) throw new Error('challenge failed: ' + r.status);
-                    return r.json();
-                })
-                .then(function (data) {
-                    sigNonce = data.nonce;
-                    showSigDialog();
-                })
-                .catch(function (err) {
-                    showError('Connection error: ' + err.message);
-                    setTimeout(startAll, 3000);
-                });
+            requireSignature();
             return;
         }
         connectCmd(nonce, sig);
