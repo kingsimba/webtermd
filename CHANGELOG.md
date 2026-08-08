@@ -1,5 +1,6 @@
 # Changelog
 
+- 2026-08-08 webtermd: Improve text editor deletion and invisible character display
 - 2026-08-08 webtermd: Add newline after sign-in signature output so the prompt doesn't merge with it
 - 2026-08-08 webtermd: Fix blank sign-in command when the saved signature is stale
 - 2026-08-08 webtermd: Move sign out button to the toolbar

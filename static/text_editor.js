@@ -48,6 +48,17 @@
 
         var status = document.createElement('div');
         status.className = 'preview-status';
+        var statusLabel = document.createElement('span');
+        statusLabel.className = 'preview-status-label';
+        var invisibleToggle = document.createElement('button');
+        invisibleToggle.type = 'button';
+        invisibleToggle.className = 'preview-invisible-toggle';
+        invisibleToggle.title = 'Show invisible characters';
+        invisibleToggle.setAttribute('aria-label', 'Show invisible characters');
+        invisibleToggle.setAttribute('aria-pressed', 'false');
+        invisibleToggle.textContent = 'Invisibles';
+        status.appendChild(statusLabel);
+        status.appendChild(invisibleToggle);
 
         var confirmOverlay = document.createElement('div');
         confirmOverlay.className = 'preview-confirm-overlay';
@@ -82,6 +93,7 @@
             modal: modal, dialog: dialog, title: title, save: save,
             closeBtn: closeBtn, body: body, textWrap: textWrap,
             text: text, image: image, status: status,
+            statusLabel: statusLabel, invisibleToggle: invisibleToggle,
             confirmOverlay: confirmOverlay,
             confirmDiscard: confirmDiscard,
             confirmCancel: confirmCancel
@@ -99,6 +111,8 @@
         var body = el.body;
         var save = el.save;
         var status = el.status;
+        var statusLabel = el.statusLabel;
+        var invisibleToggle = el.invisibleToggle;
         var closeBtn = el.closeBtn;
         var confirmOverlay = el.confirmOverlay;
         var confirmDiscard = el.confirmDiscard;
@@ -119,6 +133,7 @@
         var historyIndex = 0;
         var pendingInput = null;
         var lastEdit = null;
+        var showInvisibles = false;
 
         function detachModal() {
             if (modal.parentNode && modal.parentNode !== document.body) {
@@ -191,10 +206,10 @@
             }
             if (tabIndentedLines && !smallestSpaceIndent) {
                 indentUnit = '\t';
-                status.textContent = 'Tabs';
+                statusLabel.textContent = 'Tabs';
             } else {
                 indentUnit = new Array((smallestSpaceIndent || 4) + 1).join(' ');
-                status.textContent = 'Spaces: ' + indentUnit.length;
+                statusLabel.textContent = 'Spaces: ' + indentUnit.length;
             }
         }
 
@@ -235,6 +250,29 @@
             };
         }
 
+        // Firefox does not paint the native selection background for empty rows.
+        function syncEmptyLineSelection() {
+            var selectedLines = text.querySelectorAll('.selected-empty-line');
+            for (var selectedIndex = 0; selectedIndex < selectedLines.length; selectedIndex++) {
+                selectedLines[selectedIndex].classList.remove('selected-empty-line');
+            }
+            if (!text.isContentEditable) return;
+            var content = editorContent();
+            var selection = selectionOffsets(content);
+            var start = Math.min(selection.start, selection.end);
+            var end = Math.max(selection.start, selection.end);
+            if (start === end) return;
+            var lines = text.querySelectorAll('.preview-line');
+            var firstLine = lineIndexAt(content, start);
+            var lastLine = lineIndexAt(content, end - 1);
+            for (var lineIndex = firstLine; lineIndex <= lastLine; lineIndex++) {
+                var code = lines[lineIndex].querySelector('code');
+                if (!code.textContent.length) {
+                    lines[lineIndex].classList.add('selected-empty-line');
+                }
+            }
+        }
+
         function pointAtOffset(content, offset) {
             var lines = Array.prototype.slice.call(text.querySelectorAll('.preview-line'));
             var remaining = Math.max(0, Math.min(offset, content.length));
@@ -272,6 +310,7 @@
             selection.removeAllRanges();
             selection.collapse(startPoint.node, startPoint.offset);
             if (start !== end) selection.extend(endPoint.node, endPoint.offset);
+            syncEmptyLineSelection();
         }
 
         function scrollLineIntoView(lineIndex) {
@@ -286,13 +325,42 @@
             }
         }
 
+        function markInvisibleCharacters(code) {
+            var walker = document.createTreeWalker(code, NodeFilter.SHOW_TEXT);
+            var nodes = [];
+            var node;
+            while ((node = walker.nextNode())) nodes.push(node);
+            for (var nodeIndex = 0; nodeIndex < nodes.length; nodeIndex++) {
+                var textNode = nodes[nodeIndex];
+                if (!/[ \t]/.test(textNode.nodeValue)) continue;
+                var fragment = document.createDocumentFragment();
+                var textStart = 0;
+                for (var characterIndex = 0; characterIndex < textNode.nodeValue.length; characterIndex++) {
+                    var character = textNode.nodeValue.charAt(characterIndex);
+                    if (character !== ' ' && character !== '\t') continue;
+                    if (characterIndex > textStart) {
+                        fragment.appendChild(document.createTextNode(textNode.nodeValue.slice(textStart, characterIndex)));
+                    }
+                    var marker = document.createElement('span');
+                    marker.className = character === ' ' ? 'preview-invisible-space' : 'preview-invisible-tab';
+                    marker.textContent = character;
+                    fragment.appendChild(marker);
+                    textStart = characterIndex + 1;
+                }
+                if (textStart < textNode.nodeValue.length) {
+                    fragment.appendChild(document.createTextNode(textNode.nodeValue.slice(textStart)));
+                }
+                textNode.parentNode.replaceChild(fragment, textNode);
+            }
+        }
+
         function render(content, selection) {
             var scrollTop = body.scrollTop;
             var scrollLeft = body.scrollLeft;
             var lines = content.split('\n');
             var lang = content && window.hljs ? languageFor(path) : null;
             detectIndent(content);
-            text.className = 'preview-text' + (lang && hljs.getLanguage(lang) ? ' hljs' : '');
+            text.className = 'preview-text' + (lang && hljs.getLanguage(lang) ? ' hljs' : '') + (showInvisibles ? ' show-invisibles' : '');
             text.replaceChildren();
             text.style.setProperty('--preview-line-number-width', String(lines.length).length + 'ch');
             for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
@@ -304,7 +372,11 @@
                 } else {
                     code.textContent = lines[lineIndex];
                 }
-                if (!code.firstChild) code.appendChild(document.createTextNode(''));
+                if (showInvisibles) markInvisibleCharacters(code);
+                // <br> gives empty lines measurable height so the browser can paint
+                // selection highlighting on them.  textContent of a <br> is '',
+                // so it does not affect the content model.
+                if (!code.firstChild) code.appendChild(document.createElement('br'));
                 line.appendChild(code);
                 text.appendChild(line);
             }
@@ -401,10 +473,10 @@
             applyHistory(history[historyIndex]);
         }
 
-        function changeContent(content, start, end, inputType) {
+        function changeContent(content, start, end, inputType, groupable) {
             var before = currentState();
             var after = historyState(content, { start: start, end: end });
-            recordChange(before, after, inputType, false);
+            recordChange(before, after, inputType, groupable);
             dirty = content !== originalContent;
             updateTitle();
             normalizing = true;
@@ -485,6 +557,48 @@
             var updated = content.slice(0, start - remove) + content.slice(start);
             changeContent(updated, start - remove, start - remove, 'outdent');
             return true;
+        }
+
+        // Backspace and Delete are handled on the content model (character offsets
+        // via editorContent() / changeContent()) rather than letting the browser's
+        // native contenteditable deletion run.  Each line is a separate block-level
+        // <span class="preview-line"> element.  When the caret sits among consecutive
+        // empty lines, Firefox's native contenteditable Delete/Backspace merges or
+        // removes entire block elements at once — eating whole runs of empty lines
+        // and jumping the caret to the nearest non-empty text.  Chromium-based
+        // browsers handle this more predictably, but the behaviour is still
+        // browser-defined and not guaranteed.  By intercepting the keydown events
+        // and operating on the plain-text content model we get consistent,
+        // character-level deletion across all browsers.
+        function deleteBackward() {
+            var content = editorContent();
+            var selection = selectionOffsets(content);
+            var start = Math.min(selection.start, selection.end);
+            var end = Math.max(selection.start, selection.end);
+            if (start !== end) {
+                var updated = content.slice(0, start) + content.slice(end);
+                changeContent(updated, start, start, 'deleteContentBackward', true);
+                return;
+            }
+            if (outdentBeforeCursor()) return;
+            if (start === 0) return;
+            var updated = content.slice(0, start - 1) + content.slice(start);
+            changeContent(updated, start - 1, start - 1, 'deleteContentBackward', true);
+        }
+
+        function deleteForward() {
+            var content = editorContent();
+            var selection = selectionOffsets(content);
+            var start = Math.min(selection.start, selection.end);
+            var end = Math.max(selection.start, selection.end);
+            if (start !== end) {
+                var updated = content.slice(0, start) + content.slice(end);
+                changeContent(updated, start, start, 'deleteContentForward', true);
+                return;
+            }
+            if (start >= content.length) return;
+            var updated = content.slice(0, start) + content.slice(start + 1);
+            changeContent(updated, start, start, 'deleteContentForward', true);
         }
 
         function moveCaretVertically(direction, shiftKey) {
@@ -596,8 +710,12 @@
             } else if (event.key === 'Enter') {
                 event.preventDefault();
                 insertNewline();
-            } else if (event.key === 'Backspace' && outdentBeforeCursor()) {
+            } else if (event.key === 'Backspace' && !event.ctrlKey && !event.metaKey && !event.altKey && !event.isComposing) {
                 event.preventDefault();
+                deleteBackward();
+            } else if (event.key === 'Delete' && !event.ctrlKey && !event.metaKey && !event.altKey && !event.isComposing) {
+                event.preventDefault();
+                deleteForward();
             } else if (event.key === 'ArrowUp') {
                 event.preventDefault();
                 breakEditGroup();
@@ -675,7 +793,20 @@
         }
 
         document.addEventListener('keydown', handleEditorKeydown, true);
+        document.addEventListener('selectionchange', syncEmptyLineSelection);
         text.addEventListener('pointerdown', breakEditGroup);
+        invisibleToggle.addEventListener('mousedown', function (event) {
+            event.preventDefault();
+        });
+        invisibleToggle.addEventListener('click', function () {
+            var content = editorContent();
+            var selection = selectionOffsets(content);
+            showInvisibles = !showInvisibles;
+            invisibleToggle.title = showInvisibles ? 'Hide invisible characters' : 'Show invisible characters';
+            invisibleToggle.setAttribute('aria-label', invisibleToggle.title);
+            invisibleToggle.setAttribute('aria-pressed', String(showInvisibles));
+            render(content, selection);
+        });
         text.addEventListener('paste', function (event) {
             if (!text.isContentEditable) return;
             event.preventDefault();
@@ -766,7 +897,7 @@
                 resetHistory(originalContent);
                 render(originalContent);
                 textWrap.style.display = 'grid';
-                status.style.display = 'block';
+                status.style.display = 'flex';
                 text.contentEditable = 'true';
                 save.style.display = '';
                 isWritable = !!(data && data.writable);
