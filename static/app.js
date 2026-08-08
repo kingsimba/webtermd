@@ -143,6 +143,7 @@
             pendingCwdRestore: restoreCwd || '',
             sigOpenFired: false,
             everConnected: false,
+            destroyed: false,
             container: null,
             terminalEl: null
         };
@@ -153,6 +154,7 @@
     function destroyPane(id) {
         var p = panes[id];
         if (!p) return;
+        p.destroyed = true;
         if (paneEditors && paneEditors[id]) {
             try { paneEditors[id].close(); } catch (e) { }
             delete paneEditors[id];
@@ -212,6 +214,7 @@
     }
 
     function connectPaneWS(pane) {
+        if (pane.destroyed || panes[pane.id] !== pane) return;
         pane.sigOpenFired = false;
         var nonce = sigNonce;
         var stored = getAuth();
@@ -234,11 +237,14 @@
                     return r.json();
                 })
                 .then(function (data) {
+                    if (pane.destroyed || panes[pane.id] !== pane) return;
                     sigNonce = data.nonce;
                     openPaneWS(pane, data.nonce, sig);
                 })
                 .catch(function () {
-                    setTimeout(function () { connectPaneWS(pane); }, 3000);
+                    if (!pane.destroyed && panes[pane.id] === pane) {
+                        setTimeout(function () { connectPaneWS(pane); }, 3000);
+                    }
                 });
             return;
         }
@@ -246,6 +252,7 @@
     }
 
     function openPaneWS(pane, nonce, sig) {
+        if (pane.destroyed || panes[pane.id] !== pane) return;
         var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
         var url = proto + '//' + location.host + basePath +
             '/ws?nonce=' + encodeURIComponent(nonce) + '&signature=' + encodeURIComponent(sig);
@@ -286,6 +293,7 @@
         pane.ws.onmessage = function (ev) { paneWSHandler(pane, ev); };
 
         pane.ws.onclose = function () {
+            if (pane.destroyed || panes[pane.id] !== pane) return;
             if (!pane.everConnected && !pane.sigOpenFired && pane.id === focusedPaneId) {
                 // Auth failed — show dialog.
                 if (!sig) {
