@@ -1199,6 +1199,35 @@ body {
     line-height: 1.4;
 }
 
+#help-signout {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid #333;
+}
+
+#help-signout span {
+    color: #aaa;
+    font-size: 12px;
+}
+
+#help-signout-btn {
+    background: none;
+    border: 1px solid #b71c1c;
+    color: #ef9a9a;
+    cursor: pointer;
+    font-size: 13px;
+    padding: 4px 12px;
+    border-radius: 3px;
+}
+
+#help-signout-btn:hover {
+    background: #b71c1c;
+    color: #fff;
+}
+
 /* --- sudo modal --- */
 #sudo-modal {
     display: none;

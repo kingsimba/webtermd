@@ -1506,6 +1506,32 @@
         if (e.target === helpOverlay) helpOverlay.classList.remove('open');
     });
 
+    document.getElementById('help-signout-btn').addEventListener('click', function () {
+        clearAuth();
+        // Tear down all terminals and websocket connections.
+        var ids = getAllPaneIds();
+        for (var i = 0; i < ids.length; i++) {
+            destroyPane(ids[i]);
+        }
+        if (wsCmd) {
+            try { wsCmd.close(); } catch (e) { }
+            wsCmd = null;
+        }
+        if (sudoWS) {
+            try { sudoWS.close(); } catch (e) { }
+            sudoWS = null;
+        }
+        sudoModal.classList.remove('open');
+        // Reset layout so re-authentication starts fresh.
+        layoutTree = null;
+        focusedPaneId = null;
+        panes = {};
+        layoutBooted = false;
+        terminalContainer.innerHTML = '';
+        helpOverlay.classList.remove('open');
+        showSigDialog();
+    });
+
     // --- command channel WebSocket ---
     function connectCmd(nonce, sig) {
         var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
