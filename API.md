@@ -24,7 +24,7 @@ Returns a one-time nonce for WebSocket authentication.
 }
 ```
 
-The nonce is a base64-encoded random string. It expires after 5 minutes of inactivity — each successful verification extends the expiry, so the same nonce+signature pair can be reused across page refreshes while the session stays active.
+The nonce is a base64-encoded random string. It expires after 5 minutes of inactivity — each successful verification extends the expiry to 30 minutes, so the same nonce+signature pair can be reused across page refreshes while the session stays active.
 
 ### GET /files/:filename
 

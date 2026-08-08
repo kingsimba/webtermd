@@ -17,6 +17,9 @@ import (
 // NonceTTL is how long a challenge nonce remains valid.
 const NonceTTL = 5 * time.Minute
 
+// NonceVerifyExtend is the lifetime granted by a successful verification.
+const NonceVerifyExtend = 30 * time.Minute
+
 type nonceEntry struct {
 	expires time.Time
 }
@@ -106,7 +109,7 @@ func (a *Authenticator) Verify(nonce, signatureB64 string) bool {
 			// Extend the TTL so the same nonce+sig can be reused
 			// across page refreshes while the session is alive.
 			a.mu.Lock()
-			a.nonces[nonce] = nonceEntry{expires: time.Now().Add(NonceTTL)}
+			a.nonces[nonce] = nonceEntry{expires: time.Now().Add(NonceVerifyExtend)}
 			a.mu.Unlock()
 			return true
 		}
@@ -116,10 +119,11 @@ func (a *Authenticator) Verify(nonce, signatureB64 string) bool {
 
 // ExtendNonce refreshes a nonce's TTL. Called periodically while the
 // WebSocket stays open so the saved pair survives page refreshes.
+// The final extension also persists after disconnect.
 func (a *Authenticator) ExtendNonce(nonce string) {
 	a.mu.Lock()
 	if _, ok := a.nonces[nonce]; ok {
-		a.nonces[nonce] = nonceEntry{expires: time.Now().Add(NonceTTL)}
+		a.nonces[nonce] = nonceEntry{expires: time.Now().Add(NonceVerifyExtend)}
 	}
 	a.mu.Unlock()
 }
