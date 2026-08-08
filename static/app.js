@@ -1538,7 +1538,7 @@
 
     // --- auth dialog ---
     function showSigDialog() {
-        var cmd = "printf '%s' '" + sigNonce + "' | openssl dgst -sha256 -sign ~/.ssh/id_rsa | base64 -w0";
+        var cmd = "printf '%s' '" + sigNonce + "' | openssl dgst -sha256 -sign ~/.ssh/id_rsa | base64 -w0; echo";
         document.getElementById('sig-cmd').textContent = cmd;
         document.getElementById('sig-input').value = '';
         document.getElementById('sig-error').style.display = 'none';
