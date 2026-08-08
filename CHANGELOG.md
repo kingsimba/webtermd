@@ -1,5 +1,7 @@
 # Changelog
 
+- 2026-08-08 webtermd: Fix blank sign-in command when the saved signature is stale
+- 2026-08-08 webtermd: Move sign out button to the toolbar
 - 2026-08-08 webtermd: Fix closed panes reconnecting WebSocket sessions
 - 2026-08-07 webtermd: Fix resize errors before authentication
 - 2026-08-07 webtermd: Fix delayed authentication dialog on initial connection
