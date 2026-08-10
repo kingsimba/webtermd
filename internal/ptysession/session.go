@@ -22,6 +22,8 @@ type Session struct {
 // New spawns a PTY attached to the given shell and returns a Session.
 func New(shell string) (*Session, error) {
 	cmd := exec.Command(shell)
+	// Login shell (leading "-" in argv[0], like sshd) so profile files are sourced.
+	cmd.Args[0] = "-" + shell
 	cmd.Env = append(cmd.Environ(), "TERM=xterm-256color")
 	return StartCommand(cmd)
 }
