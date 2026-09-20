@@ -8,9 +8,18 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/creack/pty"
 )
+
+// hangupGrace is how long we let the shell exit on its own after a PTY
+// hangup (e.g. bash saving ~/.bash_history) before force-killing it.
+const hangupGrace = 2 * time.Second
+
+// eofGrace is how long we wait for the shell to exit after sending it EOF
+// before falling back to a hangup.
+const eofGrace = 300 * time.Millisecond
 
 // Session wraps a PTY attached to a shell.
 type Session struct {
@@ -59,6 +68,16 @@ func (s *Session) Resize(rows, cols uint16) error {
 }
 
 // Close terminates the PTY and waits for the shell to exit.
+//
+// It escalates through three steps so the shell gets a chance to run its
+// normal exit path (e.g. bash saving ~/.bash_history) instead of being
+// killed outright:
+//  1. If the shell itself is the foreground reader, send it EOF (as if
+//     Ctrl-D was pressed at the prompt), which is the only path that
+//     reliably makes bash save its history.
+//  2. Otherwise, or if that didn't work, close the PTY master, which
+//     raises SIGHUP on the foreground process group.
+//  3. If it still hasn't exited after hangupGrace, force-kill it.
 func (s *Session) Close() error {
 	select {
 	case <-s.closed:
@@ -66,12 +85,43 @@ func (s *Session) Close() error {
 	default:
 		close(s.closed)
 	}
-	// Kill the process group so child processes also die.
-	if s.cmd.Process != nil {
-		s.cmd.Process.Kill()
+
+	if s.cmd.Process == nil {
+		_ = s.pty.Close()
+		return nil
 	}
+
+	waitDone := make(chan struct{})
+	go func() {
+		s.cmd.Wait()
+		close(waitDone)
+	}()
+
+	// EOF only makes sense while the shell itself is reading from the
+	// terminal; sent while e.g. vim is in the foreground it would just be
+	// delivered to that program as ordinary input.
+	shellComm := filepath.Base(s.cmd.Path)
+	if len(shellComm) > 15 {
+		shellComm = shellComm[:15] // /proc/<pid>/comm truncates to 15 bytes
+	}
+	if s.ForegroundProc() == shellComm {
+		_, _ = s.pty.Write([]byte{4}) // Ctrl-D
+		select {
+		case <-waitDone:
+			_ = s.pty.Close()
+			return nil
+		case <-time.After(eofGrace):
+		}
+	}
+
 	_ = s.pty.Close()
-	_ = s.cmd.Wait()
+
+	select {
+	case <-waitDone:
+	case <-time.After(hangupGrace):
+		s.cmd.Process.Kill()
+		<-waitDone
+	}
 	return nil
 }
 
