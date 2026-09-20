@@ -8,9 +8,14 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/creack/pty"
 )
+
+// hangupGrace is how long we let the shell exit on its own after a PTY
+// hangup (e.g. bash saving ~/.bash_history) before force-killing it.
+const hangupGrace = 2 * time.Second
 
 // Session wraps a PTY attached to a shell.
 type Session struct {
@@ -59,6 +64,11 @@ func (s *Session) Resize(rows, cols uint16) error {
 }
 
 // Close terminates the PTY and waits for the shell to exit.
+//
+// Closing the PTY master first raises SIGHUP on the shell (the same signal
+// a real terminal sends on hangup), giving it a chance to run its normal
+// exit path, e.g. bash saving ~/.bash_history. Only if it doesn't exit
+// within hangupGrace do we force-kill it.
 func (s *Session) Close() error {
 	select {
 	case <-s.closed:
@@ -66,12 +76,25 @@ func (s *Session) Close() error {
 	default:
 		close(s.closed)
 	}
-	// Kill the process group so child processes also die.
-	if s.cmd.Process != nil {
-		s.cmd.Process.Kill()
-	}
+
 	_ = s.pty.Close()
-	_ = s.cmd.Wait()
+
+	if s.cmd.Process == nil {
+		return nil
+	}
+
+	waitDone := make(chan struct{})
+	go func() {
+		s.cmd.Wait()
+		close(waitDone)
+	}()
+
+	select {
+	case <-waitDone:
+	case <-time.After(hangupGrace):
+		s.cmd.Process.Kill()
+		<-waitDone
+	}
 	return nil
 }
 
